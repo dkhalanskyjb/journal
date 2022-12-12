@@ -50,3 +50,62 @@ The goals of all of this:
 * Practice writing. Here, I can be witty, or I can sound tired, or I can be
   rambly, or anything else that has no place in actual design documents. Just
   express myself more naturally. 
+  
+2022-12-21
+----------
+
+I was thinking regarding the last design meeting regarding date-time formatting.
+
+1. These two requirements are related:
+
+* We need to be able to refuse patterns like `YYYY-MM-dd` even if we do add
+  ISO week dates support.
+* We need to consider whether `DateTimeValueBag` should just list all of its
+  fields in a flat manner (like `NSDateComponents`) or nest them, like
+  ```kotlin
+  class DateTimeValueBag {
+    // val localDateTime: PartialLocalDateTime // stores links to the two fields below
+    val localDate: PartialLocalDate
+    val localTime: PartialLocalTime
+    val offset: UtcOffset?
+    val timeZone: TimeZone?
+  }
+  ```
+
+This is actually the question of the resolution mechanism, though not phrased
+as such initially. When there are multiple different representations of the same
+thing (24 hours/12 hours + AM marker, year + month + day/week-year + week number
++ week day/year + quarter-of-year + day-of-quarter etc), resolving allows to
+obtain one representation from another. For example, if a 24-hour time is
+supplied, it's certainly possible to format it as 12-hour time.
+
+Java has a very elaborate resolution mechanism. Resolution is performed
+field-by-field, and each field is responsible for its own resolution, and it
+can access the other fields. See the implementations of
+<https://docs.oracle.com/en/java/javase/16/docs/api/java.base/java/time/temporal/TemporalField.html#resolve(java.util.Map,java.time.temporal.TemporalAccessor,java.time.format.ResolverStyle)>
+However, some of the fields are combined explicitly outside of this mechanism:
+see `mergeTime` in
+<https://github.com/ThreeTen/threetenbp/blob/main/src/main/java/org/threeten/bp/format/DateTimeBuilder.java>
+
+A read regarding ISO week dates: <https://bugs.python.org/issue12006>
+This is the change that adds support of parsing week dates to Python.
+
+It would be nice to have transparent resolving rules.
+If there are two fields in `DateTimeValueBag`, `val localDate` and
+`val isoWeekDate`, there's no confusion at all about why `YYYY-MM-dd`
+doesn't output anything when you put a `LocalDate` in: of course,
+`MM-dd` is successfully taken from `localDate`, but `YYYY` should be
+taken from the (empty) `isoWeekDate`, which signals an error.
+
+If we were to store all the values in one bag with no hierarchy, then not
+filling `val isoWeekYear` and `val isoWeekNumber` when supplied with a
+`LocalDate` looks very strange, as this information can be inferred.
+
+2. Ilya mentioned that he had a use case for
+<https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.text/-regex/find.html>
+on a date-time formatter: he was receiving unstructured data from an API that
+had dates in one of several formats listed somewhere in the freeform text.
+
+The parser engine that I have currently is based on deterministic stack
+machines, but maybe it would be more convenient to emulate an NFA instead.
+The change is not very intrusive.
