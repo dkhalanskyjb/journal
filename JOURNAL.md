@@ -109,3 +109,35 @@ had dates in one of several formats listed somewhere in the freeform text.
 The parser engine that I have currently is based on deterministic stack
 machines, but maybe it would be more convenient to emulate an NFA instead.
 The change is not very intrusive.
+
+
+Have been staring at the *specific* numbers behind usage patterns, like
+"months are mentioned in 80%+ of all patterns" and
+"AM markers are only in 4%- of all patterns, whereas hours-of-am/pm are in about
+5% of all patterns". Right now I want to analyze this the other way,
+"what is the set of patterns we should support to achieve at least N%", because
+looking at it like this, we could get an impression that we can just cut AM/PM
+for now, as well as everything else that is not all that popular, but different
+patterns use *different* rare directives, so it may well turn out that, by
+removing everything that's rare, we're actually removing the ability to write
+50% of all the patterns.
+
+Sounds a bit tough though to analyze this properly. Would need to try to
+minimize the number of directives somehow, instead of just greedily traversing
+the pattern list.
+
+Managed to get fairly close, won't spend any more time on this.
+
+... Or so I thought. Also taking into account which directives are easy to
+implement if we already decided that some other ones should be implemented
+turned out to affect the results significantly.
+
+Discovery of the day!
+
+For 90% of cases, it is enough to support:
+* Years, month numbers, and days;
+* Hours-of-day, minutes, seconds, and fractions of seconds;
+* Short and long localized month names;
+* Hours-of-am/pm, am/pm;
+* Offsets of the form +HHMM;
+* Short names of weekdays.
