@@ -51,7 +51,7 @@ The goals of all of this:
   rambly, or anything else that has no place in actual design documents. Just
   express myself more naturally. 
   
-2022-12-21
+2022-12-12
 ----------
 
 I was thinking regarding the last design meeting regarding date-time formatting.
@@ -141,3 +141,71 @@ For 90% of cases, it is enough to support:
 * Hours-of-am/pm, am/pm;
 * Offsets of the form +HHMM;
 * Short names of weekdays.
+
+
+2022-12-13
+----------
+
+### Morning: datetime
+
+Since I decided to work on the parser now, it's a good idea to also revise the
+simplified handling of timezone identifiers.
+
+There are only two kinds of usages of timezone identifiers in format strings:
+* Delimited by `[]` or spaces, and
+* Appended at the end of the text to whatever number there was last.
+  Probably this is used in place of printing or parsing an offset.
+
+If we make an assumption that no identifiers contain `[]` or start with a number,
+we can greedily parse an arbitrary string into a timezone ID and not break any
+use cases.
+
+On the other hand, 310bp parses timezone identifiers properly, using the
+timezone database:
+<https://github.com/ThreeTen/threetenbp/blob/973f2b7120d2c173b0181bde39ce416d1e8edfe0/src/main/java/org/threeten/bp/format/DateTimeFormatterBuilder.java#L3516>
+
+However, this is at odds with our plans to support alternative timezone
+databases. How would parser know which timezone database to use?
+
+Noda Time requires passing the timezone database if one wants to parse TZDB
+identifiers:
+<https://nodatime.org/2.4.x/api/NodaTime.Text.ZonedDateTimePattern.html#NodaTime_Text_ZonedDateTimePattern_WithZoneProvider_NodaTime_IDateTimeZoneProvider_>
+
+### Day: coroutines
+
+My musings were interrputed by needing to adjust the Coroutines library for the
+new release of Kotlin itself.
+Looks like this commit <https://github.com/Kotlin/kotlinx.coroutines/commit/61ba10d9029e4990636f9a41dce24b462e33026e>
+has to go, because the feature itself will be postponed a whole compiler
+version.
+
+We act as both producers and consumers of reactive publishers, and that commit
+adds the `& Any` to both places. What I need to research is, what happens when
+the code that has this feature enabled interacts with code that doesn't.
+* Obviously, if we add `& Any` to our consumers, nothing will break for anyone.
+  The opposite: if someone has the feature enabled, they will never break when
+  using our producers, even in the polymorphic case.
+* On the other hand, adding `& Any` to the consumers will cause the polymorphic
+  case of of an arbitrary reactive publisher to fail.
+  This wouldn't be a problem if the language itself prohibited non-`& Any`
+  publishers, but that is postponed.
+
+Maybe we could still keep the upper bounds on publishers we create, but not the
+ones we consume?
+
+Uh, no, turns out it's not actually the case. `Maybe<T>` is not recognized as
+`Maybe<out T>`. That's a bummer. So, adding `& Any` to either producers or
+consumers, while being different in principle, will break code due to the lack
+of the variance knowledge.
+
+So, there are two possible answers:
+* Embrace the breaking change, which the committee approved, and just suppress
+  the error, or
+* Revert the commit, delaying the breaking change until the language itself is
+  ready.
+
+The second option seems more preferable. So, reverting it is.
+
+While waiting for an answer about the future of the feature,
+I looked at `ReadonlySharedFlow` in order to answer
+<https://github.com/Kotlin/kotlinx.coroutines/issues/3552>.
