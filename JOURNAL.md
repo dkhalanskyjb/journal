@@ -206,6 +206,21 @@ So, there are two possible answers:
 
 The second option seems more preferable. So, reverting it is.
 
-While waiting for an answer about the future of the feature,
+(While waiting for an answer about the future of the feature,
 I looked at `ReadonlySharedFlow` in order to answer
-<https://github.com/Kotlin/kotlinx.coroutines/issues/3552>.
+<https://github.com/Kotlin/kotlinx.coroutines/issues/3552>).
+
+
+So, it turns out, I misunderstood what the changes to the compiler are.
+Denis clarified all these things, and together we managed to arrive at the fix.
+
+So, it *will* be impossible to construct `MaybeSource<T>` and such instead of
+`MaybeSource<T & Any>`, and the only thing that actually broke is some small
+implementation detail. It is possible to adapt that implementation in a manner
+that tricks the compiler into thinking that everything's okay on both the old
+and the new compiler. Most importantly, the whole commit is okay and shouldn't
+be reverted.
+
+After some cleanup that even allowed me to remove a suppressed warning, I
+pushed the result to `develop`:
+<https://github.com/Kotlin/kotlinx.coroutines/commit/ccde0c7d777f2b36a5f770533893b1cd5acedafc>
