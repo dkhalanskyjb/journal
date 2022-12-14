@@ -224,3 +224,18 @@ be reverted.
 After some cleanup that even allowed me to remove a suppressed warning, I
 pushed the result to `develop`:
 <https://github.com/Kotlin/kotlinx.coroutines/commit/ccde0c7d777f2b36a5f770533893b1cd5acedafc>
+
+
+2022-12-14
+----------
+
+Yesterday, when I tried to have a call, it turned out that my mic is not
+working. I went down the rabbithole of trying to fix it, and it turns out that's
+purely a software issue: for some reason, my headphones are stuck in the "music
+sounds good" mode and don't switch to "sound is bad, but the mic is working".
+Manually switching profiles in `pavucontrol` works just fine. Maybe, before, I
+just always had the "music sounds bad" mode without noticing?
+
+After a while, I give up. Maybe a system restart will help. Else, I'll just have
+to remember to switch my mic on in three different places.
+Not much worse than just two.
