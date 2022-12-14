@@ -259,4 +259,13 @@ is really inspiring and got me thinking. Can't wait to see how they managed to
 have a sensible type checker with types being arbitrary predicates.
 
 
+### Datetime
 
+Making some final touches on the parser machinery. Mostly making sure that error
+messages make sense, instead of being like Java's not-very-helpful "could not
+parse at index 2".
+
+TODO tomorrow:
+* Make the state of the parser commands linked to the commands via types.
+* Rework the data structure representing the composite commands, so that the
+  code dealing with the next command is more straightforward.
