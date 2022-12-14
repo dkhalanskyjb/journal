@@ -239,3 +239,24 @@ just always had the "music sounds bad" mode without noticing?
 After a while, I give up. Maybe a system restart will help. Else, I'll just have
 to remember to switch my mic on in three different places.
 Not much worse than just two.
+
+No such luck, the system restart doesn't help.
+
+Today, I'm a bit sleepy, not sure I could sensibly start writing code
+immediately, so I'll look at the pending reviews requested from me in
+<https://github.com/Kotlin/kotlinx.coroutines/pulls?q=is%3Apr+is%3Aopen+user-review-requested%3A%40me+>
+Fun fact: I tried to edit this link so that anyone who reads this sees the PRs
+pending a review from me-me, not them-"me", but apparently this doesn't work:
+<https://github.com/Kotlin/kotlinx.coroutines/pulls?q=is%3Apr+is%3Aopen+user-review-requested%3A%40dkhalanskyjb+>
+Also, apparently `@me` is actually someone: <https://github.com/me/>.
+
+
+On my lunch break, I've read about SPJ's new language for Epic Games:
+<https://simon.peytonjones.org/assets/pdfs/haskell-exchange-22.pdf>
+Throughout the first half, I was bored: it's just a list monad, but with the
+support of narrowing. However, the later section dedicated to logic programming
+is really inspiring and got me thinking. Can't wait to see how they managed to
+have a sensible type checker with types being arbitrary predicates.
+
+
+
