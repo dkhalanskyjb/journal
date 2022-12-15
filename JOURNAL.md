@@ -269,3 +269,46 @@ TODO tomorrow:
 * Make the state of the parser commands linked to the commands via types.
 * Rework the data structure representing the composite commands, so that the
   code dealing with the next command is more straightforward.
+
+
+2022-12-15
+----------
+
+What a deeply unpleasant day. It snowed the whole night, and on 5 AM, a
+bulldozer showed up and started to clear the roads very loudly for a whole
+hour. This reminded me of living near an airport for a while.
+Needless to say, I barely slept since then. Everything's fuzzy.
+
+Still, Curry is said to have invented the Y combinator when he had his
+anesthesia for tooth removal, so this is not really an excuse for not working.
+
+Some thoughts I had: Ilya made a point that we probably need to have a
+`DateTimeFormatter.ofJavaPattern` or something that would allow creation
+of our `DateTimeFormatter` from Java's (and possibly other
+[Unicode](https://unicode-org.github.io/icu/userguide/format_parse/datetime/))
+pattern strings (in addition to)/replacing
+`kotlinFormatPatternFromJavaFormatPattern: (String) -> String`.
+The use case that he provided was this: let's say someone already has format
+strings in their codebase, but then, adding *another* format string just to
+support our patterns is some added friction. As an example, he provided an
+internal JetBrains codebase that has an object with all the time format
+constants listed: would our API require that they duplicate the object when
+migrating gradually?
+
+Turns out, the point is moot, as that codebase *doesn't* use Java's API,
+it uses Moment.js: <https://momentjs.com/>. An important difference is that
+Moment.js doesn't provide a `DateTimeFormatter` at all, it uses only the
+format strings, the same way `strptime`/`strftime`, Go's formats etc do.
+In Java, it's not very common to see date-time format strings that are not
+just directly passed into a `DateTimeFormatter.ofPattern` invocation, and
+the reason is, `DateTimeFormatter` is quite expensive to construct, so it
+makes sense to have it as a singleton.
+
+*However*, having `DateTimeFormatter.ofJavaPattern` *would* be useful if we
+(and that's most likely) keep the current course of defining
+a `DateTimeFormatterBuilder` instead of making string-based API unwieldly with
+various options. In that case, some format strings from Java etc. would not
+translate into a *format string* in our format but would translate just fine
+into a `DateTimeFormatter`. With the facilities to print the `DateTimeFormatter`
+in a form of code to reproduce it, we'd recreate the behavior of
+`kotlinFormatPatternFromJavaFormatPattern`, but more generally.
