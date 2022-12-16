@@ -312,3 +312,32 @@ translate into a *format string* in our format but would translate just fine
 into a `DateTimeFormatter`. With the facilities to print the `DateTimeFormatter`
 in a form of code to reproduce it, we'd recreate the behavior of
 `kotlinFormatPatternFromJavaFormatPattern`, but more generally.
+
+
+Looking through some issues in the coroutines repository. Can't do anything
+more structured in this state. Answered a couple of people. Looking at
+<https://github.com/Kotlin/kotlinx.coroutines/issues/3551>, it seems like
+the suggestion has merit.
+<https://docs.oracle.com/javase/8/docs/api/java/io/InterruptedIOException.html>
+does mention that this exception implies the thread being interrupted.
+I think this exception exists as a separate thing is that a class can't be
+inherited from two classes at the same time, and `IOException` and
+`InterruptedException` are both classes. It's more likely that people have
+mechanisms in place for handling an `IOException` anyway around all I/O
+operations, so it makes sense that `IOException` was chosen to represent this
+state. What can you do, restart the operation?
+
+So, semantically, `InterruptedIOException` seems to be
+an `InterruptedException`.
+
+While researching this, I encountered
+<https://github.com/square/okhttp/issues/3945>. From there, I wrote my thoughts
+under the issue itself.
+
+
+Worked some more on the parser.
+
+
+Looked into <https://momentjs.com/docs/#/parsing/>, which has some interesting
+details about parsing strictness.
+
