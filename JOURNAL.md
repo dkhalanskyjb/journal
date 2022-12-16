@@ -356,3 +356,48 @@ even better than I intended, because it conveys the *actual* feeling of dealing
 with the broken concept of a datetime.
 
 ![My new avatar](/images/avatar-2022-12-15.jpeg)
+
+Since this is another slow day, I'm going to sort through my 87 browser tabs
+(all work-related, there are no things like "A Comprehensive Analysis of
+Gothic II's Quest Structure, Part 16: The Wording in the Journal is Genious").
+The <https://addons.mozilla.org/en-US/firefox/addon/tree-style-tab/> extension
+certainly helps immensely--I can confidently navigate this number of tabs only
+thanks to this extension--but there are some articles that I opened for their
+insights and never had time to read.
+
+The first in line is <https://www.zacsweers.dev/ticktock-desugaring-timezones/>,
+dedicated to separate time zone databases on Android, a thing we're planning to
+have in the datetime library (<https://github.com/Kotlin/kotlinx-datetime/issues/201>).
+
+While looking for the link to the issue for the previous paragraph, I
+accidentally answered a couple of issues.
+
+
+While looking through the issues, I decided to refactor some code. I don't
+trust myself to *write* code now, but refactoring is fine.
+So, I overhauled my implementation of the mechanism that would allow us to catch
+more exceptions during tests:
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3449/commits/e5051ba57b9ff1b76c5bf2ad19d62eb59f93f049>
+
+Staring more closely at the machinery that handles uncaught exceptions, I see
+that there are many places where we try to handle uncaught exceptions, but defer
+to the global machinery in case something is wrong. I think `handle` should
+be replaced with `tryHandle`. I wrote a prototype to see how it would work, but,
+unfortunately, it seems like the change is not binary-compatible. I'll push it
+to the repo anyway when all tests pass, so that we could start a discussion, but
+my hopes are not high: <https://github.com/Kotlin/kotlinx.coroutines/pull/3554/>
+
+
+Some notes from the Tick Tock article linked above:
+* Often, loading a timezone has to happen on the application startup, which
+  incurs a delay. <https://github.com/gabrielittner/lazythreetenbp> is one
+  solution for this. We should support laziness from the ground-up in order to
+  be viable.
+* We should research whether we should provide alternative timezone databases
+  in both the Java resource format and as an Android asset.
+
+
+Also, I'll be on a trip for the next week. I'll keep working on the datetime
+formatting implementation, but I don't know whether I'll have Internet
+connection. So, to anyone reading this, don't be surprised if this repo doesn't
+get updated throughout the next week!
