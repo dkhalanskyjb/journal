@@ -341,3 +341,18 @@ Worked some more on the parser.
 Looked into <https://momentjs.com/docs/#/parsing/>, which has some interesting
 details about parsing strictness.
 
+2022-12-16
+----------
+
+Wow, this feels like an elaborate joke. Today, the bulldozer woke me up at
+5 AM again.
+
+Also, made a new GitHub avatar yesterday via
+<https://stablediffusionweb.com/#demo>. I asked it for a cartoony spider that
+had a thread in one hand and a clock in another (get it? because spiders weave
+threads, and I work on the coroutines library, so, threads?.. fibers?.. and
+the datetime, so the clock?.. nevermind). The result was wrong, but somehow
+even better than I intended, because it conveys the *actual* feeling of dealing
+with the broken concept of a datetime.
+
+![My new avatar](/images/avatar-2022-12-15.jpeg)
