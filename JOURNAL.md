@@ -401,3 +401,74 @@ Also, I'll be on a trip for the next week. I'll keep working on the datetime
 formatting implementation, but I don't know whether I'll have Internet
 connection. So, to anyone reading this, don't be surprised if this repo doesn't
 get updated throughout the next week!
+
+
+2022-12-18
+----------
+
+Some fascinating discoveries I've made when going to sleep.
+
+First, an update to the model of the "or" operator in the parsers/formatters.
+Initially, I thought of the following model:
+* Given a pattern `A(B|C)D`, a parser will attempt to parse `ABD` and `ACD`
+  (and, typically, just return the first successful match).
+* Given a pattern `A(B|C)D`, a *formatter* will check if all of the fields
+  mentioned in `B` have their default values.
+  If so, `ACD` is formatted instead of `ABD`. For example, with a pattern
+  `hh:mm(:ss|)`, a time would format to `hh:mm` instead of `hh:mm:ss` if the
+  seconds are zero, and with a pattern `(+hh(:mm(:ss|)|)|Z)`, an offset would
+  format as `+hh:mm:ss` if hours, minutes, and seconds were all included,
+  as `+hh:mm` if seconds were zero, `+hh` if the minutes were also zero, and
+  finally, as `Z` if the offset as a whole is zero.
+
+The parsing rule is completely straightforward and easy to internalize, but
+I was dissatisfied with formatting: it just didn't seem right to me: why is
+the correct format in case of ambiguity the last?
+
+I understood the issue I was having better when trying to write a conversion
+from `strptime`/`strftime` to the format. With the proposed semantics for `|`,
+the translation would be:
+- `%m` (the month) would be translated to `d<(mm|m)>`
+- `%S` (the second) would be translated to `t<(ss|s|00)>`
+
+Why so complicated?
+- When parsed, `%m` and `%S` have optional zero-padding.
+  So, `m` and `s` patterns need to be included for parsing.
+- When formatted, both `%m` and `%S` are zero-padded.
+  * The month field can't have a default value. So, `mm` will always get chosen.
+  * The seconds field has the default value of 0.
+    If the number of seconds is non-zero, the first pattern, `ss`, is chosen.
+    However, if the number of seconds is *zero*, the first pattern has only
+    default values, so the second, `s`, would be chosen. But then, `0` would be
+    output. So, `|00` needs to be added so that `s`, being at its default value,
+    defers to `00` being printed.
+
+This is ridiculous. I ruminated over the alternatives.
+
+One alternative could be to have a rule like this: in `A(B|C)D`, `B` is chosen
+if either it has non-default values or `C`, too, has only default values.
+This, too, doesn't sit well with me: this rule feels too full of magic.
+However, the translation does become simple:
+- `%m` still becomes `d(mm|m)`,
+- `%S` now becomes `t<(ss|s)>`.
+
+Feels too much like plugging a leak though. There must be a more natural rule.
+
+And I think I found it.
+
+Semantically, `A(B_1|B_2|...|B_n)C` builds for each `B_i` the set of fields that
+it mentions that have non-default values, and then finds the earliest `i` such
+that `B_i` is a maximum when comparing the sets by inclusion.
+I need to thoroughly check whether this definition is associative, but I'm sure
+that it is.
+
+The full explanation for programmers could be something like this:
+
+> When formatting `A|B`, `A` will typically be used, unless `B` is more precise
+> than `A` and precision is required. For example, `hh:mm(|:ss)` will be
+> formatted as `hh:mm` if the seconds are zero, but as `hh:mm:ss` if the seconds
+> are non-zero (and so `:ss` has more information than just the empty string).
+> 
+> More accurately, when formatting `A|B`, if `B` contains all the fields from
+> `A` whose value is not equal to the default one, but also some additional
+> non-default values, `B` will be used instead of `A`.
