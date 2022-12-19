@@ -472,3 +472,99 @@ The full explanation for programmers could be something like this:
 > More accurately, when formatting `A|B`, if `B` contains all the fields from
 > `A` whose value is not equal to the default one, but also some additional
 > non-default values, `B` will be used instead of `A`.
+
+
+2022-12-19
+----------
+
+With all this travel, I didn't have much chance to whip out my laptop and churn
+out any code, but I did manage to think a lot. This turned out to be very
+productive. And here I was thinking that the implementation was already good
+enough and all that's left is to write some tests!
+
+I'm sure somebody did discover this already, but I managed to imagine a thing
+that is the same as zippers while also having better data locality (a good thing
+but not something to worry about *now* when we just need to ship this) and, much
+more importantly, easier to read for non-FP people. If any of the lurkers here
+happen to know what I'm talking about, please open an issue.
+
+So, the idea is very simple.
+
+Let's take a linked list as an example.
+
+```haskell
+data List a = Nil | Cons a (List a)
+
+data ListZipper a = ListZipper (List a) a (List a)
+
+listToZipper :: List a -> Maybe (ListZipper a)
+listToZipper Nil = Nothing
+listToZipper (Cons a (List a)) = Just $ ListZipper Nil a
+```
+
+A zipper is equivalent to the original data structure, but "highlighting" one of
+the elements, providing O(1) access to it for both reading and modification.
+
+A lilst `[1, 2, 3, 4, 5, 6]` with `4` highlighted is equivalent to the zipper
+`[3, 2, 1] 4 [5, 6]`.
+
+```haskell
+-- Focus on the next element
+-- O(1)
+-- [3, 2, 1] 4 [5, 6] -> [4, 3, 2, 1] 5 [6]
+zipperNext :: ListZipper a -> Maybe (ListZipper a)
+zipperNext (ListZipper prv cur []) = Nothing
+zipperNext (ListZipper prv cur (newCur:nxt)) =
+  Just $ ListZipper (cur:prv) newCur nxt
+
+-- Focus on the previous element
+-- O(1)
+-- [3, 2, 1] 4 [5, 6] -> [2, 1] 3 [5, 6]
+zipperPrev :: ListZipper a -> Maybe (ListZipper a)
+zipperPrev (ListZipper [] cur nxt) = Nothing
+zipperPrev (ListZipper (newCur:prv) cur nxt) =
+  Just $ ListZipper prv newCur (cur:nxt)
+
+-- Replace the current zipper element
+-- O(1)
+-- [3, 2, 1] 4 [5, 6], 10 -> [3, 2, 1] 10 [5, 6]
+replaceZipperElement :: ListZipper a -> a -> ListZipper a
+replaceZipperElement (ListZipper prv a nxt) b = ListZipper prv b nxt
+
+-- Replaces the current zipper element with a zipper
+-- [3, 2, 1] 4 [5, 6], [3.5, 3.2] 4.1 [4.3, 4.8] ->
+-- [3.5, 3.2, 3, 2, 1] 4.1 [4.3, 4.8, 5, 6]
+-- Can be generalized to the monadic bind
+-- O(size of the left and rigth sides of the replacement zipper)
+injectZipper :: ListZipper a -> (a -> ListZipper a) -> ListZipper a
+injectZipper (ListZipper prv a nxt) f =
+  let (ListZipper prv' a' nxt') = f a
+   in ListZipper (prv' ++ prv) a' (nxt' ++ nxt)
+```
+
+All of these operations except the (structure-changing) injection can be done
+very easily with just an array index if we put all the list elements in the
+array in order.
+When working with arrays, I will not go the zipper way, risking losing
+data locality and making the code far less idiomatic. Any performance gains from
+injecting very quickly are very situational and are negated by the lack of data
+locality for small lists, which is a common argument against linked lists in
+production in general.
+
+I for one don't need *any* mutation. The reason I used zippers was to represent
+the position in a complex list of commands. So, if I could use indices instead
+of zippers, I would do so in a heartbeat.
+
+And here's the thing: for any ADT, I can! If we do the naive trick of storing
+all the nodes of the same type in an array, we can represent an accessor as just
+an array of indices:
+`[type_1, index_1, type_2, index_2, ..., type_n, index_n]`
+
+```
+parent z = {throw away the last index in the array}
+next z = {try to increment the last element in the array}
+prev z = {try to decrement the last element in the array}
+```
+
+I won't even be implementing the type markers, because they are always known for
+my use case, but it's very nice to know that it's possible.
