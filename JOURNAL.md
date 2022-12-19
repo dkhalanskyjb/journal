@@ -568,3 +568,23 @@ prev z = {try to decrement the last element in the array}
 
 I won't even be implementing the type markers, because they are always known for
 my use case, but it's very nice to know that it's possible.
+
+
+Reading the ICU4J source code to determine how they choose the best pattern
+with the given set of fields, supposedly the backbone of
+<https://developer.apple.com/documentation/foundation/nsdateformatter/1408112-dateformatfromtemplate>,
+since Darwin's datetime, notably, relies on ICU in its implementation.
+This method is provided in addition to
+<https://developer.apple.com/documentation/foundation/nsdateformatter/1413514-dateformat>,
+which allows typical [Unicode](https://unicode-org.github.io/icu/userguide/format_parse/datetime/)
+strings.
+
+Oh boy, is this a can of worms.
+Required reading: <https://unicode-org.github.io/icu/userguide/format_parse/datetime/#datetimepatterngenerator>
+and its implementation.
+
+The simplest way to start understanding this is to look through the
+`dateTimeFormats` tag in <https://raw.githubusercontent.com/unicode-org/cldr/main/common/main/ru.xml>
+and the neighboring files (don't try to do this via GitHub's interface, like
+<https://github.com/unicode-org/cldr/blob/main/common/main/ru.xml>, open the
+raw versions: the files are too big).
