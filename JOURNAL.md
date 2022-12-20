@@ -673,3 +673,37 @@ $
 
 They can not. Ok, so I'll need to actually programmatically implement this
 query.
+
+
+I had a feeling I had to write down why I have to represent `A(B|C)D(E|F)` as
+
+```
+    _ B _        _ E _
+   /     \      /     \
+A --- C ---- D --- F ----
+
+```
+
+and not
+
+```
+
+A --- B --- D --- E
+  \          \___ F
+   \_ C --- D --- E
+             \___ F
+```
+
+I was completely sure about this, but now I just don't see any reason in the
+slightest.
+
+Relying on the usual quality of one's memory when you know you won't be getting
+nearly enough sleep is not efficient.
+
+
+In general, there's really not much interesting to write. These days I'm just
+putting the final touches on the locale-invariant parsing and formatting
+implementation. Mostly documentation and tests at this point. The 310bp test
+suite is proving useful as usual, though it doesn't help with testing the
+desired properties that Java doesn't have, like the ambiguity detector in the
+parser.
