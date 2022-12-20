@@ -588,3 +588,88 @@ The simplest way to start understanding this is to look through the
 and the neighboring files (don't try to do this via GitHub's interface, like
 <https://github.com/unicode-org/cldr/blob/main/common/main/ru.xml>, open the
 raw versions: the files are too big).
+
+
+2022-12-20
+----------
+
+Oh no.
+
+There's the `B` Unicode directive that I found absolutely awful:
+
+```
+    B       1      appendDayPeriodText(TextStyle.SHORT)
+    BBBB    4      appendDayPeriodText(TextStyle.FULL)
+    BBBBB   5      appendDayPeriodText(TextStyle.NARROW)
+```
+
+Example: `in the morning`.
+
+I wanted so badly to avoid ever dealing with this, but it doesn't look like we
+can help it. If we use the CLDR, we'll *have* to know how to parse the letter
+"B" and how to format dates according to it.
+
+In the CLDR repository:
+```sh
+# When the user queries for a pattern without explicitly requesting that the
+# period of day is included, but the pattern includes the period of day anyway.
+$ git grep '<dateFormatItem id="[^B]*">.*B' common/main/
+common/main/my.xml:                                             <dateFormatItem id="Ehm">E B h:mm</dateFormatItem>
+common/main/my.xml:                                             <dateFormatItem id="Ehms">E B h:mm:ss</dateFormatItem>
+common/main/my.xml:                                             <dateFormatItem id="h">B h</dateFormatItem>
+common/main/my.xml:                                             <dateFormatItem id="hm">B h:mm</dateFormatItem>
+common/main/my.xml:                                             <dateFormatItem id="hms">B h:mm:ss</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="h">Bh時</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="hm">Bh:mm</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="hms">Bh:mm:ss</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="Ehm">E Bh:mm</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="Ehms">E Bh:mm:ss</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="h">Bh時</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="hm">Bh:mm</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="hms">Bh:mm:ss</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="Ehm">E Bh:mm</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="Ehms">E Bh:mm:ss</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="h">Bh時</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="hm">Bh:mm</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="hms">Bh:mm:ss</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="hmsv">Bh:mm:ss [v]</dateFormatItem>
+common/main/zh_Hant.xml:                                                <dateFormatItem id="hmv">Bh:mm [v]</dateFormatItem>
+$ grep 'language type="my"' common/main/en.xml
+                        <language type="my">Burmese</language>
+$ grep 'language type="zh_Hant"' common/main/en.xml
+                        <language type="zh_Hant">Traditional Chinese</language>
+```
+
+So, in traditional Chinese (and something called "Burmese"), time is formatted
+without AM/PM markers, but with the "period of day" marker.
+
+Let's take a look at `com.ibm.icu.text.DateTimePatternGenerator#types` to see if
+there are any more surprising directives that we'll have to be able to represent
+internally at least.
+
+* Quarters. Unless a user requests that they are formatted, they won't be
+  present.
+* Week of year. ^
+* Week of month. ^
+* Any of the variations of the concept of timezone names. ^
+* ...
+
+Screw this, I'll be at this all day at this tempo.
+
+```sh
+$ for l in {a..z} {A..Z}; do if git grep -q '<dateFormatItem id="[^'$l']*">.*'$l'.*<' common/main/; then echo -n $l; fi; done; echo
+abcdefghijklmnoprstuvwyzABGIJKLNUWY
+```
+
+These are: AM/PM markers, periods of day, weekday... no, that's not right.
+Too many letters. And this is understandable: for example, when someone
+requests an `M` (month), they can instead get an `L` (a standalone month), but
+can they really get `L` when neither `M` nor `L` were requested?
+
+```
+$ git grep '<dateFormatItem id="[^ML]*">.*L.*<' common/main/
+$
+```
+
+They can not. Ok, so I'll need to actually programmatically implement this
+query.
