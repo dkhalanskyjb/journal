@@ -707,3 +707,170 @@ implementation. Mostly documentation and tests at this point. The 310bp test
 suite is proving useful as usual, though it doesn't help with testing the
 desired properties that Java doesn't have, like the ambiguity detector in the
 parser.
+
+
+2022-12-22
+----------
+
+Had an operation yesterday, didn't have the strength to work, took a sick leave.
+
+Looking at
+<https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.text/-regex/find-all.html>
+
+Here's an interesting example:
+```kotlin
+val text = "Hello Alice. Hello Bob. Hello Eve."
+val regex = Regex("Hello ([^.]*)")
+val matches = regex.findAll(text)
+val names = matches.map { it.groupValues[1] }.joinToString()
+println(names) // Alice, Bob, Eve
+```
+
+What's interesting about it is that there are more possible matches than there
+are listed: `A`, `Al`, `Ali`, `Alic`, `B`, `Bo`, `E`, and `Ev` also fit.
+
+Let's try the other way:
+```kotlin
+val text = "Alice, hello! Bob, hello! Eve, hello!"
+val regex = Regex("([^ ]*), hello!")
+val matches = regex.findAll(text)
+val names = matches.map { it.groupValues[1] }.joinToString()
+println(names) // Alice, Bob, Eve
+```
+
+In fact, `lice`, `ice`, `ce`, `e`, `ob`, `b`, `ve`, and `e` also match.
+
+So, the text "Returns a sequence of **all** occurrences of a regular expression"
+is not really true.
+
+This is all an interesting question when implementing `find` and `findAll` for
+datetime parsers. We probably want some consistency with the behavior of
+`findAll` and `find`, and for that, we should:
+* Implement eager matching. For example, parsing `12.1356` as seconds with
+  fractions, we should only match `12.1356`, not `12.135`, `12.13`, or `12.1`.
+  - What to do with patterns like `hh:mm:ss(|.fff)`?
+    Moment.js provides a nice answer: parse as much as you can; in other words,
+    parse with all the patterns and choose the longest match.
+* If `n..m` is successfully parsed, don't try to also parse `n+k..m`.
+  Now, this is a bit tricky semantically, so let's consider this issue
+  separately.
+
+Some problematic cases:
+* Given a string `Today is 11-02` and a pattern "one- or two-digit month, then
+  the day", there are two valid substrings that match: `11-02` and `1-02`.
+  The second one is extraneous.
+* Given a string `In 10000 years, it will be 12023-09-17` and a pattern
+  "four-digit year, two-digit month, and two-digit day", we will only be able to
+  match `2023-09-17`, but that's not the correct date.
+
+These issues are basically one and the same: it's an error to start parsing in
+the middle of a number.
+
+We could hard-code this, but I don't like special-casing. For example, when
+searching for a timezone ID, we, too, don't want to successfully parse the text
+"MGMT" as the "GMT" time zone, or "OUTCOME" as "UTC".
+
+So, let's see if we can realistically generalize the rule. Maybe "not when the
+characters are in the same Unicode character category"? I don't know much about
+character categories, so let's see what they look like for ASCII.
+
+```kotlin
+fun main() {
+    for (i in 1 until 128) {
+        val c = i.toChar()
+        val s = when (c) {
+            '\n' -> "\\n"
+            '\b' -> "\\b"
+            '\t' -> "\\t"
+            '\r' -> "\\r"
+            else -> " $c"
+        }
+        val n = if (i < 10) "00$i" else if (i < 100) "0$i" else "$i"
+        val ss = "$n\t$s\t${c.category}"
+        if (i % 2 == 0) {
+            println(ss)
+        } else {
+            print(ss + (40 - ss.length).let { " ".repeat(it) })
+        }
+    }
+}
+```
+
+```
+001	 	CONTROL                          002	 	CONTROL
+003	 	CONTROL                          004	 	CONTROL
+005	 	CONTROL                          006	 	CONTROL
+007	 	CONTROL                          008	\b	CONTROL
+009	\t	CONTROL                          010	\n	CONTROL
+011	 	CONTROL                          012	 	CONTROL
+013	\r	CONTROL                          014	 	CONTROL
+015	 	CONTROL                          016	 	CONTROL
+017	 	CONTROL                          018	 	CONTROL
+019	 	CONTROL                          020	 	CONTROL
+021	 	CONTROL                          022	 	CONTROL
+023	 	CONTROL                          024	 	CONTROL
+025	 	CONTROL                          026	 	CONTROL
+027	 	CONTROL                          028	 	CONTROL
+029	 	CONTROL                          030	 	CONTROL
+031	 	CONTROL                          032	  	SPACE_SEPARATOR
+033	 !	OTHER_PUNCTUATION                034	 "	OTHER_PUNCTUATION
+035	 #	OTHER_PUNCTUATION                036	 $	CURRENCY_SYMBOL
+037	 %	OTHER_PUNCTUATION                038	 &	OTHER_PUNCTUATION
+039	 '	OTHER_PUNCTUATION                040	 (	START_PUNCTUATION
+041	 )	END_PUNCTUATION                  042	 *	OTHER_PUNCTUATION
+043	 +	MATH_SYMBOL                      044	 ,	OTHER_PUNCTUATION
+045	 -	DASH_PUNCTUATION                 046	 .	OTHER_PUNCTUATION
+047	 /	OTHER_PUNCTUATION                048	 0	DECIMAL_DIGIT_NUMBER
+049	 1	DECIMAL_DIGIT_NUMBER             050	 2	DECIMAL_DIGIT_NUMBER
+051	 3	DECIMAL_DIGIT_NUMBER             052	 4	DECIMAL_DIGIT_NUMBER
+053	 5	DECIMAL_DIGIT_NUMBER             054	 6	DECIMAL_DIGIT_NUMBER
+055	 7	DECIMAL_DIGIT_NUMBER             056	 8	DECIMAL_DIGIT_NUMBER
+057	 9	DECIMAL_DIGIT_NUMBER             058	 :	OTHER_PUNCTUATION
+059	 ;	OTHER_PUNCTUATION                060	 <	MATH_SYMBOL
+061	 =	MATH_SYMBOL                      062	 >	MATH_SYMBOL
+063	 ?	OTHER_PUNCTUATION                064	 @	OTHER_PUNCTUATION
+065	 A	UPPERCASE_LETTER                 066	 B	UPPERCASE_LETTER
+067	 C	UPPERCASE_LETTER                 068	 D	UPPERCASE_LETTER
+069	 E	UPPERCASE_LETTER                 070	 F	UPPERCASE_LETTER
+071	 G	UPPERCASE_LETTER                 072	 H	UPPERCASE_LETTER
+073	 I	UPPERCASE_LETTER                 074	 J	UPPERCASE_LETTER
+075	 K	UPPERCASE_LETTER                 076	 L	UPPERCASE_LETTER
+077	 M	UPPERCASE_LETTER                 078	 N	UPPERCASE_LETTER
+079	 O	UPPERCASE_LETTER                 080	 P	UPPERCASE_LETTER
+081	 Q	UPPERCASE_LETTER                 082	 R	UPPERCASE_LETTER
+083	 S	UPPERCASE_LETTER                 084	 T	UPPERCASE_LETTER
+085	 U	UPPERCASE_LETTER                 086	 V	UPPERCASE_LETTER
+087	 W	UPPERCASE_LETTER                 088	 X	UPPERCASE_LETTER
+089	 Y	UPPERCASE_LETTER                 090	 Z	UPPERCASE_LETTER
+091	 [	START_PUNCTUATION                092	 \	OTHER_PUNCTUATION
+093	 ]	END_PUNCTUATION                  094	 ^	MODIFIER_SYMBOL
+095	 _	CONNECTOR_PUNCTUATION            096	 `	MODIFIER_SYMBOL
+097	 a	LOWERCASE_LETTER                 098	 b	LOWERCASE_LETTER
+099	 c	LOWERCASE_LETTER                 100	 d	LOWERCASE_LETTER
+101	 e	LOWERCASE_LETTER                 102	 f	LOWERCASE_LETTER
+103	 g	LOWERCASE_LETTER                 104	 h	LOWERCASE_LETTER
+105	 i	LOWERCASE_LETTER                 106	 j	LOWERCASE_LETTER
+107	 k	LOWERCASE_LETTER                 108	 l	LOWERCASE_LETTER
+109	 m	LOWERCASE_LETTER                 110	 n	LOWERCASE_LETTER
+111	 o	LOWERCASE_LETTER                 112	 p	LOWERCASE_LETTER
+113	 q	LOWERCASE_LETTER                 114	 r	LOWERCASE_LETTER
+115	 s	LOWERCASE_LETTER                 116	 t	LOWERCASE_LETTER
+117	 u	LOWERCASE_LETTER                 118	 v	LOWERCASE_LETTER
+119	 w	LOWERCASE_LETTER                 120	 x	LOWERCASE_LETTER
+121	 y	LOWERCASE_LETTER                 122	 z	LOWERCASE_LETTER
+123	 {	START_PUNCTUATION                124	 |	MATH_SYMBOL
+125	 }	END_PUNCTUATION                  126	 ~	MATH_SYMBOL
+127	 	CONTROL
+```
+
+Unfortunately, this doesn't look like something that suits us.
+For example, `UPPERCASE_LETTER` and `LOWERCASE_LETTER` are different categories,
+though for our purposes they are the same, whereas both `<` and `+` are
+considered to be math symbols, even though a string `<+03:30>` looks fairly
+natural. And, to think of it, if the pattern is something like
+`(mm| m)-dd`, failing to parse `  2-16` of all things because the space is in
+the middle of a span of spaces is, well, really odd.
+
+So, it looks like special casing for letters and numbers can't be avoided.
+Luckily, I can't think of any other naturally occurring spans of characters
+other than spaces.
