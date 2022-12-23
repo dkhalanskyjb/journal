@@ -874,3 +874,17 @@ the middle of a span of spaces is, well, really odd.
 So, it looks like special casing for letters and numbers can't be avoided.
 Luckily, I can't think of any other naturally occurring spans of characters
 other than spaces.
+
+
+Another important thing:
+
+```kotlin
+val text = "Oh, hi!"
+val regex = Regex(pattern = "(?<=Oh, )hi!")
+println(regex.matchAt(text, 4)?.value)
+val matches = regex.findAll(text, 3)
+val names = matches.map { it.groupValues[0] }.joinToString()
+println(names) // hi!
+```
+
+Lookbehind can see the part of the string before the `startIndex` position.
