@@ -458,7 +458,7 @@ And I think I found it.
 
 Semantically, `A(B_1|B_2|...|B_n)C` builds for each `B_i` the set of fields that
 it mentions that have non-default values, and then finds the earliest `i` such
-that `B_i` is a maximum when comparing the sets by inclusion.
+that `B_i` is a maximal element when comparing the sets by inclusion.
 I need to thoroughly check whether this definition is associative, but I'm sure
 that it is.
 
@@ -888,3 +888,64 @@ println(names) // hi!
 ```
 
 Lookbehind can see the part of the string before the `startIndex` position.
+
+2022-12-23
+----------
+
+Now, about formatters. Time to clean up their implementation as well, maybe
+uncovering something questionable in the process.
+
+Formatting is very easy: just slap together a bunch of strings. The only
+question is, what to format, and deciding *that* is less trivial.
+
+Let's see how the formatter is compiled to the more efficient form.
+
+Let's consider three formatters, `A`, `B`, and `C`:
+* `N`: has field A,
+* `M`: has field B,
+* `O`: has both fields A and B.
+
+Turns out that, sadly, the definition of `|` for formatting that I cooked up
+(search "maximal element" in this file) is, in fact, non-associative:
+* `(N|(M|O)) = O`, since `M|O = O` and `N|O = O`.
+* `((N|M)|O) = N`, since `(N|M)|O = N|M = N`.
+
+The latter clearly seems to be against the spirit of the abstraction,
+though, in retrospect, that's not surprising, as finding the maximal element
+of a partial order, obviously, *is* a non-associative operation.
+So, we'll need to look at this globally and require that the "or" chaining
+is always normalized to a list of alternatives and the question of
+associativity never arises.
+
+On the other hand, there is an issue when choosing the candidate globally:
+let's say we have
+* `N` with the field `A`,
+* `M` with fields `B` and `C`, and
+* `O` with fields `A` and `D`.
+
+All fields don't have a default value.
+
+This will have an unpleasant property: we will discard `N` in favor of `O`,
+but then we'll choose... `M`. So, the sole existence of `O` will change the
+relationship between `N` and `M`.
+
+I should highlight that these are all just concerns about a mental model.
+From what I've seen, realistically, people don't have anything so fancy in their
+formats. It will always be something in the vein of "don't format seconds if
+they and the nanoseconds are zero". The use case for formatters with
+programmer-defined patterns is just formatting in a *specific* format for
+serialization, and user-visible strings should be obtained from a locale-aware
+system like `DateTimeFormatter.ofLocalizedDateTime`, and realistic patterns to
+need to format are fairly simple.
+
+Maybe, for formatting, we could simply require that the alternatives must be
+listed in the order from most specific to least specific, like
+`Z|+hh:mm|+hh:mm:ss`. If someone *does* have issues because of this, we'll hear
+them out and will be in the better position to judge what to do next.
+
+So, total order, here we go!
+
+Since, in total orders, the `max` operation is associative, we do obtain that
+property as well.
+
+
