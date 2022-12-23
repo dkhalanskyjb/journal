@@ -712,7 +712,7 @@ parser.
 2022-12-22
 ----------
 
-Had an operation yesterday, didn't have the strength to work, took a sick leave.
+Had surgery yesterday, didn't have the strength to work, took a sick leave.
 
 Looking at
 <https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.text/-regex/find-all.html>
@@ -889,6 +889,7 @@ println(names) // hi!
 
 Lookbehind can see the part of the string before the `startIndex` position.
 
+
 2022-12-23
 ----------
 
@@ -949,3 +950,88 @@ Since, in total orders, the `max` operation is associative, we do obtain that
 property as well.
 
 
+Wow, just saw the wildest thing:
+
+```kotlin
+val styles = mutableMapOf<DecimalStyle, MutableSet<Locale>>()
+for (locale in Locale.getAvailableLocales().sortedBy { it.toLanguageTag() }) {
+    styles.getOrPut(DecimalStyle.of(locale)) { mutableSetOf() }.add(locale)
+}
+for ((style, locales) in styles) {
+    println("Style: '${style.zeroDigit}' '${style.positiveSign}' '${style.negativeSign}' '${style.decimalSeparator}', locales: $locales")
+}
+```
+
+```
+Style: '0' '+' '-' ',', locales: [af, af_NA, af_ZA, agq, agq_CM, ast, ast_ES, az, az__#Cyrl, az_AZ_#Cyrl, az__#Latn, az_AZ_#Latn, bas, bas_CM, be, be_BY, bg, bg_BG, br, br_FR, bs, bs__#Cyrl, bs_BA_#Cyrl, bs__#Latn, bs_BA_#Latn, ca, ca_AD, ca_ES, ca_ES_VALENCIA, ca_FR, ca_IT, cs, cs_CZ, da, da_DK, da_GL, de, de_AT, de_BE, de_DE, de_IT, de_LU, dsb, dsb_DE, dua, dua_CM, dyo, dyo_SN, el, el_CY, el_GR, en_150, en_AT, en_BE, en_CH, en_DE, en_DK, en_FI, en_NL, en_SE, en_SI, en_ZA, eo, eo_001, es, es_AR, es_BO, es_CL, es_CO, es_CR, es_EA, es_EC, es_ES, es_GQ, es_IC, es_PH, es_PY, es_UY, es_VE, ewo, ewo_CM, ff, ff_CM, ff_GN, ff_MR, ff_SN, fr, fr_BE, fr_BF, fr_BI, fr_BJ, fr_BL, fr_CA, fr_CD, fr_CF, fr_CG, fr_CH, fr_CI, fr_CM, fr_DJ, fr_DZ, fr_FR, fr_GA, fr_GF, fr_GN, fr_GP, fr_GQ, fr_HT, fr_KM, fr_LU, fr_MA, fr_MC, fr_MF, fr_MG, fr_ML, fr_MQ, fr_MR, fr_MU, fr_NC, fr_NE, fr_PF, fr_PM, fr_RE, fr_RW, fr_SC, fr_SN, fr_SY, fr_TD, fr_TG, fr_TN, fr_VU, fr_WF, fr_YT, fur, fur_IT, fy, fy_NL, gl, gl_ES, hr, hr_BA, hr_HR, hsb, hsb_DE, hu, hu_HU, hy, hy_AM, in, in_ID, is, is_IS, it, it_IT, it_SM, it_VA, jgo, jgo_CM, ka, ka_GE, kab, kab_DZ, kea, kea_CV, kk, kk_KZ, kkj, kkj_CM, kl, kl_GL, km, km_KH, ksf, ksf_CM, ky, ky_KG, lb, lb_LU, ln, ln_AO, ln_CD, ln_CF, ln_CG, lo, lo_LA, lu, lu_CD, lv, lv_LV, mgh, mgh_MZ, mk, mk_MK, ms_BN, mua, mua_CM, nl, nl_AW, nl_BE, nl_BQ, nl_CW, nl_NL, nl_SR, nl_SX, nmg, nmg_CM, nnh, nnh_CM, os, os_GE, os_RU, pl, pl_PL, pt, pt_AO, pt_BR, pt_CH, pt_CV, pt_GQ, pt_GW, pt_LU, pt_MO, pt_MZ, pt_PT, pt_ST, pt_TL, qu_BO, rn, rn_BI, ro, ro_MD, ro_RO, ru, ru_BY, ru_KG, ru_KZ, ru_MD, ru_RU, ru_UA, rw, rw_RW, sah, sah_RU, seh, seh_MZ, sg, sg_CF, shi, shi__#Latn, shi_MA_#Latn, shi__#Tfng, shi_MA_#Tfng, sk, sk_SK, smn, smn_FI, sq, sq_AL, sq_MK, sq_XK, sr, sr_BA, sr_CS, sr__#Cyrl, sr_BA_#Cyrl, sr_ME_#Cyrl, sr_RS_#Cyrl, sr_XK_#Cyrl, sr__#Latn, sr_BA_#Latn, sr_ME_#Latn, sr_RS_#Latn, sr_XK_#Latn, sr_ME, sr_RS, sw_CD, tg, tg_TJ, tk, tk_TM, tr, tr_CY, tr_TR, tt, tt_RU, tzm, tzm_MA, uk, uk_UA, uz, uz__#Latn, uz_UZ_#Latn, vi, vi_VN, wae, wae_CH, wo, wo_SN, yav, yav_CM, zgh, zgh_MA]
+Style: '0' '+' '-' '.', locales: [ak, ak_GH, am, am_ET, asa, asa_TZ, bem, bem_ZM, bez, bez_TZ, bm, bm_ML, bo, bo_CN, bo_IN, brx, brx_IN, ccp, ccp_BD, ccp_IN, ce, ce_RU, cgg, cgg_UG, chr, chr_US, cu, cu_RU, cy, cy_GB, dav, dav_KE, de_CH, de_LI, dje, dje_NE, ebu, ebu_KE, ee, ee_GH, ee_TG, en, en_001, en_AG, en_AI, en_AS, en_AU, en_BB, en_BI, en_BM, en_BS, en_BW, en_BZ, en_CA, en_CC, en_CK, en_CM, en_CX, en_CY, en_DG, en_DM, en_ER, en_FJ, en_FK, en_FM, en_GB, en_GD, en_GG, en_GH, en_GI, en_GM, en_GU, en_GY, en_HK, en_IE, en_IL, en_IM, en_IN, en_IO, en_JE, en_JM, en_KE, en_KI, en_KN, en_KY, en_LC, en_LR, en_LS, en_MG, en_MH, en_MO, en_MP, en_MS, en_MT, en_MU, en_MW, en_MY, en_NA, en_NF, en_NG, en_NR, en_NU, en_NZ, en_PG, en_PH, en_PK, en_PN, en_PR, en_PW, en_RW, en_SB, en_SC, en_SD, en_SG, en_SH, en_SL, en_SS, en_SX, en_SZ, en_TC, en_TK, en_TO, en_TT, en_TV, en_TZ, en_UG, en_UM, en_US, en_US_POSIX, en_VC, en_VG, en_VI, en_VU, en_WS, en_ZM, en_ZW, es_419, es_BR, es_BZ, es_CU, es_DO, es_GT, es_HN, es_MX, es_NI, es_PA, es_PE, es_PR, es_SV, es_US, fil, fil_PH, ga, ga_IE, gd, gd_GB, gu, gu_IN, guz, guz_KE, gv, gv_IM, ha, ha_GH, ha_NE, ha_NG, haw, haw_US, hi, hi_IN, ii, ii_CN, it_CH, ja, ja_JP, ja_JP_JP_#u-ca-japanese, jmc, jmc_TZ, kam, kam_KE, kde, kde_TZ, khq, khq_ML, ki, ki_KE, kln, kln_KE, kn, kn_IN, ko, ko_KP, ko_KR, kok, kok_IN, ksb, ksb_TZ, kw, kw_GB, lag, lag_TZ, lg, lg_UG, lkt, lkt_US, luo, luo_KE, luy, luy_KE, mas, mas_KE, mas_TZ, mer, mer_KE, mfe, mfe_MU, mg, mg_MG, mgo, mgo_CM, ml, ml_IN, mn, mn_MN, ms, ms_MY, ms_SG, mt, mt_MT, naq, naq_NA, nd, nd_ZW, nds, nds_DE, nds_NL, nus, nus_SS, nyn, nyn_UG, om, om_ET, om_KE, or, or_IN, pa, pa__#Guru, pa_IN_#Guru, prg, prg_001, qu, qu_EC, qu_PE, rof, rof_TZ, rwk, rwk_TZ, saq, saq_KE, sbp, sbp_TZ, ses, ses_ML, si, si_LK, sn, sn_ZW, so, so_DJ, so_ET, so_KE, so_SO, sw, sw_KE, sw_TZ, sw_UG, ta, ta_IN, ta_LK, ta_MY, ta_SG, te, te_IN, teo, teo_KE, teo_UG, th, th_TH, ti, ti_ER, ti_ET, to, to_TO, twq, twq_NE, ug, ug_CN, , vai, vai__#Latn, vai_LR_#Latn, vai__#Vaii, vai_LR_#Vaii, vo, vo_001, vun, vun_TZ, xog, xog_UG, ji, ji_001, yo, yo_BJ, yo_NG, yue, yue__#Hans, yue_CN_#Hans, yue__#Hant, yue_HK_#Hant, zh, zh_CN, zh_HK, zh__#Hans, zh_CN_#Hans, zh_HK_#Hans, zh_MO_#Hans, zh_SG_#Hans, zh__#Hant, zh_HK_#Hant, zh_MO_#Hant, zh_TW_#Hant, zh_SG, zh_TW, zu, zu_ZA]
+Style: '٠' '+' '؜' '٫', locales: [ar, ar_001, ar_AE, ar_BH, ar_DJ, ar_EG, ar_ER, ar_IL, ar_IQ, ar_JO, ar_KM, ar_KW, ar_LB, ar_MR, ar_OM, ar_PS, ar_QA, ar_SA, ar_SD, ar_SO, ar_SS, ar_SY, ar_TD, ar_YE, sd, sd_PK]
+Style: '0' '+' '‎' ',', locales: [ar_DZ, ar_LY, ar_MA, ar_TN]
+Style: '0' '+' '‎' '.', locales: [ar_EH, iw, iw_IL, ur, ur_PK]
+Style: '০' '+' '-' '.', locales: [as, as_IN, bn, bn_BD, bn_IN]
+Style: '٠' '+' '‏' '٫', locales: [ckb, ckb_IQ, ckb_IR, ig, ig_NG]
+Style: '༠' '+' '-' '.', locales: [dz, dz_BT]
+Style: '0' '+' '−' ',', locales: [et, et_EE, eu, eu_ES, fi, fi_FI, fo, fo_DK, fo_FO, ksh, ksh_DE, lt, lt_LT, nb, nb_NO, nb_SJ, nn, no_NO_NY, nn_NO, no, no_NO, se, se_FI, se_NO, se_SE, sl, sl_SI, sv, sv_AX, sv_FI, sv_SE]
+Style: '۰' '+' '‎' '٫', locales: [fa, fa_AF, fa_IR, ks, ks_IN, lrc, lrc_IQ, lrc_IR, mzn, mzn_IR, pa__#Arab, pa_PK_#Arab, ps, ps_AF, ur_IN, uz__#Arab, uz_AF_#Arab]
+Style: '0' '+' '−' '.', locales: [gsw, gsw_CH, gsw_FR, gsw_LI, rm, rm_CH]
+Style: '०' '+' '-' '.', locales: [mr, mr_IN, ne, ne_IN, ne_NP]
+Style: '၀' '+' '-' '.', locales: [my, my_MM]
+Style: '๐' '+' '-' '.', locales: [th_TH_TH_#u-nu-thai]
+Style: '۰' '+' '-' '٫', locales: [uz__#Cyrl, uz_UZ_#Cyrl]
+```
+
+I don't see the negative sign in a couple of places here. Are my fonts lacking
+or is there just no negative sign?
+
+I've also asked the code to output the Unicode number of the negative signs it
+outputs: `'${style.negativeSign} (${style.negativeSign.code})'`. The missing
+signs had codes 8206, 8207, and 1564. These are 200E, 200F, and 061C in hex,
+respectively, and their meaning is...
+* <https://en.wikipedia.org/wiki/Left-to-right_mark>
+* <https://en.wikipedia.org/wiki/Right-to-left_mark>
+* <https://en.wikipedia.org/wiki/Arabic_letter_mark>
+
+So, the minus sign for fractions is actually a "reverse the text" sign in some
+places?
+<https://en.wikipedia.org/wiki/Modern_Arabic_mathematical_notation> doesn't seem
+to mention anything to this effect.
+
+I have a sneaking suspicion though... that it's just broken.
+
+```kotlin
+val dateTime = ZonedDateTime.now().withZoneSameInstant(ZoneId.of("Europe/Berlin")).withYear(-2000)
+val formatter = DateTimeFormatterBuilder().appendValue(ChronoField.YEAR, 4, 4, SignStyle.EXCEEDS_PAD).appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true).toFormatter()
+val styles = mutableMapOf<DecimalStyle, MutableSet<Locale>>()
+for (locale in Locale.getAvailableLocales().sortedBy { it.toLanguageTag() }) {
+    styles.getOrPut(DecimalStyle.of(locale)) { mutableSetOf() }.add(locale)
+}
+for ((style, locales) in styles) {
+    println("Style: '${style.zeroDigit}' '${style.positiveSign}' '${style.negativeSign}' '${style.decimalSeparator}', pos_time: ${formatter.withDecimalStyle(style).format(dateTime.withYear(2000))}, neg_time: ${formatter.withDecimalStyle(style).format(dateTime)}, locales: $locales")
+}
+```
+
+Both here and in the browser, which supports right-to-left, positive and
+negative numbers just look the same to me:
+
+```
+Style: '0' '+' '-' ',', pos_time: 2000,057428, neg_time: -2000,057428, locales: [af, af_NA, af_ZA, agq, agq_CM, ast, ast_ES, az, az__#Cyrl, az_AZ_#Cyrl, az__#Latn, az_AZ_#Latn, bas, bas_CM, be, be_BY, bg, bg_BG, br, br_FR, bs, bs__#Cyrl, bs_BA_#Cyrl, bs__#Latn, bs_BA_#Latn, ca, ca_AD, ca_ES, ca_ES_VALENCIA, ca_FR, ca_IT, cs, cs_CZ, da, da_DK, da_GL, de, de_AT, de_BE, de_DE, de_IT, de_LU, dsb, dsb_DE, dua, dua_CM, dyo, dyo_SN, el, el_CY, el_GR, en_150, en_AT, en_BE, en_CH, en_DE, en_DK, en_FI, en_NL, en_SE, en_SI, en_ZA, eo, eo_001, es, es_AR, es_BO, es_CL, es_CO, es_CR, es_EA, es_EC, es_ES, es_GQ, es_IC, es_PH, es_PY, es_UY, es_VE, ewo, ewo_CM, ff, ff_CM, ff_GN, ff_MR, ff_SN, fr, fr_BE, fr_BF, fr_BI, fr_BJ, fr_BL, fr_CA, fr_CD, fr_CF, fr_CG, fr_CH, fr_CI, fr_CM, fr_DJ, fr_DZ, fr_FR, fr_GA, fr_GF, fr_GN, fr_GP, fr_GQ, fr_HT, fr_KM, fr_LU, fr_MA, fr_MC, fr_MF, fr_MG, fr_ML, fr_MQ, fr_MR, fr_MU, fr_NC, fr_NE, fr_PF, fr_PM, fr_RE, fr_RW, fr_SC, fr_SN, fr_SY, fr_TD, fr_TG, fr_TN, fr_VU, fr_WF, fr_YT, fur, fur_IT, fy, fy_NL, gl, gl_ES, hr, hr_BA, hr_HR, hsb, hsb_DE, hu, hu_HU, hy, hy_AM, in, in_ID, is, is_IS, it, it_IT, it_SM, it_VA, jgo, jgo_CM, ka, ka_GE, kab, kab_DZ, kea, kea_CV, kk, kk_KZ, kkj, kkj_CM, kl, kl_GL, km, km_KH, ksf, ksf_CM, ky, ky_KG, lb, lb_LU, ln, ln_AO, ln_CD, ln_CF, ln_CG, lo, lo_LA, lu, lu_CD, lv, lv_LV, mgh, mgh_MZ, mk, mk_MK, ms_BN, mua, mua_CM, nl, nl_AW, nl_BE, nl_BQ, nl_CW, nl_NL, nl_SR, nl_SX, nmg, nmg_CM, nnh, nnh_CM, os, os_GE, os_RU, pl, pl_PL, pt, pt_AO, pt_BR, pt_CH, pt_CV, pt_GQ, pt_GW, pt_LU, pt_MO, pt_MZ, pt_PT, pt_ST, pt_TL, qu_BO, rn, rn_BI, ro, ro_MD, ro_RO, ru, ru_BY, ru_KG, ru_KZ, ru_MD, ru_RU, ru_UA, rw, rw_RW, sah, sah_RU, seh, seh_MZ, sg, sg_CF, shi, shi__#Latn, shi_MA_#Latn, shi__#Tfng, shi_MA_#Tfng, sk, sk_SK, smn, smn_FI, sq, sq_AL, sq_MK, sq_XK, sr, sr_BA, sr_CS, sr__#Cyrl, sr_BA_#Cyrl, sr_ME_#Cyrl, sr_RS_#Cyrl, sr_XK_#Cyrl, sr__#Latn, sr_BA_#Latn, sr_ME_#Latn, sr_RS_#Latn, sr_XK_#Latn, sr_ME, sr_RS, sw_CD, tg, tg_TJ, tk, tk_TM, tr, tr_CY, tr_TR, tt, tt_RU, tzm, tzm_MA, uk, uk_UA, uz, uz__#Latn, uz_UZ_#Latn, vi, vi_VN, wae, wae_CH, wo, wo_SN, yav, yav_CM, zgh, zgh_MA]
+Style: '0' '+' '-' '.', pos_time: 2000.057428, neg_time: -2000.057428, locales: [ak, ak_GH, am, am_ET, asa, asa_TZ, bem, bem_ZM, bez, bez_TZ, bm, bm_ML, bo, bo_CN, bo_IN, brx, brx_IN, ccp, ccp_BD, ccp_IN, ce, ce_RU, cgg, cgg_UG, chr, chr_US, cu, cu_RU, cy, cy_GB, dav, dav_KE, de_CH, de_LI, dje, dje_NE, ebu, ebu_KE, ee, ee_GH, ee_TG, en, en_001, en_AG, en_AI, en_AS, en_AU, en_BB, en_BI, en_BM, en_BS, en_BW, en_BZ, en_CA, en_CC, en_CK, en_CM, en_CX, en_CY, en_DG, en_DM, en_ER, en_FJ, en_FK, en_FM, en_GB, en_GD, en_GG, en_GH, en_GI, en_GM, en_GU, en_GY, en_HK, en_IE, en_IL, en_IM, en_IN, en_IO, en_JE, en_JM, en_KE, en_KI, en_KN, en_KY, en_LC, en_LR, en_LS, en_MG, en_MH, en_MO, en_MP, en_MS, en_MT, en_MU, en_MW, en_MY, en_NA, en_NF, en_NG, en_NR, en_NU, en_NZ, en_PG, en_PH, en_PK, en_PN, en_PR, en_PW, en_RW, en_SB, en_SC, en_SD, en_SG, en_SH, en_SL, en_SS, en_SX, en_SZ, en_TC, en_TK, en_TO, en_TT, en_TV, en_TZ, en_UG, en_UM, en_US, en_US_POSIX, en_VC, en_VG, en_VI, en_VU, en_WS, en_ZM, en_ZW, es_419, es_BR, es_BZ, es_CU, es_DO, es_GT, es_HN, es_MX, es_NI, es_PA, es_PE, es_PR, es_SV, es_US, fil, fil_PH, ga, ga_IE, gd, gd_GB, gu, gu_IN, guz, guz_KE, gv, gv_IM, ha, ha_GH, ha_NE, ha_NG, haw, haw_US, hi, hi_IN, ii, ii_CN, it_CH, ja, ja_JP, ja_JP_JP_#u-ca-japanese, jmc, jmc_TZ, kam, kam_KE, kde, kde_TZ, khq, khq_ML, ki, ki_KE, kln, kln_KE, kn, kn_IN, ko, ko_KP, ko_KR, kok, kok_IN, ksb, ksb_TZ, kw, kw_GB, lag, lag_TZ, lg, lg_UG, lkt, lkt_US, luo, luo_KE, luy, luy_KE, mas, mas_KE, mas_TZ, mer, mer_KE, mfe, mfe_MU, mg, mg_MG, mgo, mgo_CM, ml, ml_IN, mn, mn_MN, ms, ms_MY, ms_SG, mt, mt_MT, naq, naq_NA, nd, nd_ZW, nds, nds_DE, nds_NL, nus, nus_SS, nyn, nyn_UG, om, om_ET, om_KE, or, or_IN, pa, pa__#Guru, pa_IN_#Guru, prg, prg_001, qu, qu_EC, qu_PE, rof, rof_TZ, rwk, rwk_TZ, saq, saq_KE, sbp, sbp_TZ, ses, ses_ML, si, si_LK, sn, sn_ZW, so, so_DJ, so_ET, so_KE, so_SO, sw, sw_KE, sw_TZ, sw_UG, ta, ta_IN, ta_LK, ta_MY, ta_SG, te, te_IN, teo, teo_KE, teo_UG, th, th_TH, ti, ti_ER, ti_ET, to, to_TO, twq, twq_NE, ug, ug_CN, , vai, vai__#Latn, vai_LR_#Latn, vai__#Vaii, vai_LR_#Vaii, vo, vo_001, vun, vun_TZ, xog, xog_UG, ji, ji_001, yo, yo_BJ, yo_NG, yue, yue__#Hans, yue_CN_#Hans, yue__#Hant, yue_HK_#Hant, zh, zh_CN, zh_HK, zh__#Hans, zh_CN_#Hans, zh_HK_#Hans, zh_MO_#Hans, zh_SG_#Hans, zh__#Hant, zh_HK_#Hant, zh_MO_#Hant, zh_TW_#Hant, zh_SG, zh_TW, zu, zu_ZA]
+Style: '٠' '+' '؜' '٫', pos_time: ٢٠٠٠٫٠٥٧٤٢٨, neg_time: ؜٢٠٠٠٫٠٥٧٤٢٨, locales: [ar, ar_001, ar_AE, ar_BH, ar_DJ, ar_EG, ar_ER, ar_IL, ar_IQ, ar_JO, ar_KM, ar_KW, ar_LB, ar_MR, ar_OM, ar_PS, ar_QA, ar_SA, ar_SD, ar_SO, ar_SS, ar_SY, ar_TD, ar_YE, sd, sd_PK]
+Style: '0' '+' '‎' ',', pos_time: 2000,057428, neg_time: ‎2000,057428, locales: [ar_DZ, ar_LY, ar_MA, ar_TN]
+Style: '0' '+' '‎' '.', pos_time: 2000.057428, neg_time: ‎2000.057428, locales: [ar_EH, iw, iw_IL, ur, ur_PK]
+Style: '০' '+' '-' '.', pos_time: ২০০০.০৫৭৪২৮, neg_time: -২০০০.০৫৭৪২৮, locales: [as, as_IN, bn, bn_BD, bn_IN]
+Style: '٠' '+' '‏' '٫', pos_time: ٢٠٠٠٫٠٥٧٤٢٨, neg_time: ‏٢٠٠٠٫٠٥٧٤٢٨, locales: [ckb, ckb_IQ, ckb_IR, ig, ig_NG]
+Style: '༠' '+' '-' '.', pos_time: ༢༠༠༠.༠༥༧༤༢༨, neg_time: -༢༠༠༠.༠༥༧༤༢༨, locales: [dz, dz_BT]
+Style: '0' '+' '−' ',', pos_time: 2000,057428, neg_time: −2000,057428, locales: [et, et_EE, eu, eu_ES, fi, fi_FI, fo, fo_DK, fo_FO, ksh, ksh_DE, lt, lt_LT, nb, nb_NO, nb_SJ, nn, no_NO_NY, nn_NO, no, no_NO, se, se_FI, se_NO, se_SE, sl, sl_SI, sv, sv_AX, sv_FI, sv_SE]
+Style: '۰' '+' '‎' '٫', pos_time: ۲۰۰۰٫۰۵۷۴۲۸, neg_time: ‎۲۰۰۰٫۰۵۷۴۲۸, locales: [fa, fa_AF, fa_IR, ks, ks_IN, lrc, lrc_IQ, lrc_IR, mzn, mzn_IR, pa__#Arab, pa_PK_#Arab, ps, ps_AF, ur_IN, uz__#Arab, uz_AF_#Arab]
+Style: '0' '+' '−' '.', pos_time: 2000.057428, neg_time: −2000.057428, locales: [gsw, gsw_CH, gsw_FR, gsw_LI, rm, rm_CH]
+Style: '०' '+' '-' '.', pos_time: २०००.०५७४२८, neg_time: -२०००.०५७४२८, locales: [mr, mr_IN, ne, ne_IN, ne_NP]
+Style: '၀' '+' '-' '.', pos_time: ၂၀၀၀.၀၅၇၄၂၈, neg_time: -၂၀၀၀.၀၅၇၄၂၈, locales: [my, my_MM]
+Style: '๐' '+' '-' '.', pos_time: ๒๐๐๐.๐๕๗๔๒๘, neg_time: -๒๐๐๐.๐๕๗๔๒๘, locales: [th_TH_TH_#u-nu-thai]
+Style: '۰' '+' '-' '٫', pos_time: ۲۰۰۰٫۰۵۷۴۲۸, neg_time: -۲۰۰۰٫۰۵۷۴۲۸, locales: [uz__#Cyrl, uz_UZ_#Cyrl]
+```
+
+I think it's an unfortunate combination of nobody using `DecimalStyle` and
+there being virtually no negative numbers in practice. The only negative
+numbers are in the UTC offsets, and those are formatted ignoring the decimal
+style.
