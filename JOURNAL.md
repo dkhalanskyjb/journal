@@ -1035,3 +1035,24 @@ I think it's an unfortunate combination of nobody using `DecimalStyle` and
 there being virtually no negative numbers in practice. The only negative
 numbers are in the UTC offsets, and those are formatted ignoring the decimal
 style.
+
+2022-12-27
+----------
+
+Back from the trip and ready to work! For the three days that's left before I go
+to an actual vacation, that is.
+
+As a nice distraction from the formatting, I decided to write some nice
+templates for issues on the coroutines GitHub. We have too many people coming to
+us with Stack Overflow-type questions, which is bad for everyone: we answer more
+slowly than Stack Overflow does, we are burdened with the additional task of
+answering questions instead of fixing issues, and sometimes, we don't even have
+the best answers, the community does: for example, with something
+Android-specific.
+
+
+Here's the result: <https://github.com/Kotlin/kotlinx.coroutines/pull/3560>
+Tried to keep the text on-point.
+
+Reviewed a PR needed for Kotlin's impending release
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3553>
