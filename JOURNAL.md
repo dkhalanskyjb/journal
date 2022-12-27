@@ -1060,3 +1060,28 @@ Reviewed a PR needed for Kotlin's impending release
 
 Reading/answering some issues in the coroutines repository that accumulated
 while I was unavailable.
+
+
+All this time, I played fast and loose with the terminology of format strings.
+Is `yyyy` a pattern? A directive? A format? Designator?
+Nobody's what I'm saying anyway, this is all just research, not a final product.
+Well, now that we're close to the final product, I need to clean up my act.
+
+So, reading about how these things are *actually* called.
+* "Year" is a field.
+* `y` is a pattern letter or a pattern character.
+* `yyyy-MM-dd` is a *pattern* that defines a *format*.
+* `yyyy` seems to also be called a pattern that defines a format, but I don't
+  like that there's no difference between composite patterns and patterns
+  equivalent to a single field.
+
+(See `printf(3)`)
+`printf`'s parts of the format string are called *directives*.
+* A plain character, say, "t" is also an "ordinary character" directive.
+* `%.03f` is a conversion specification. Here, `f` is the conversion specifier.
+  Aside from the specifier, a specification also allows defining flags, the
+  minimum field width, an optional precision, and an optional length modifier.
+
+I certainly don't like the "conversion specification" and "conversion specifier"
+terminology here, it seems too unwieldly, but calling an inseparable unit of a
+pattern string a "directive" does sound nice.
