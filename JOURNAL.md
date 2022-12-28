@@ -1085,3 +1085,114 @@ So, reading about how these things are *actually* called.
 I certainly don't like the "conversion specification" and "conversion specifier"
 terminology here, it seems too unwieldly, but calling an inseparable unit of a
 pattern string a "directive" does sound nice.
+
+
+2022-12-28
+----------
+
+The issue templates for the coroutines repo are in. Let's see how this affects
+the stream of issues that we have. I don't think it's time already to make such
+a template for the datetime library, we don't have nearly as many issue reports
+there. No surprise though, as the library is still experimental. We do need to
+publish the formatting capabilities.
+
+
+Looking into how `InterruptedIOException` is used,
+for <https://github.com/Kotlin/kotlinx.coroutines/issues/3551>:
+* <https://github.com/search?q=InterruptedIOException+language%3AKotlin&type=code&l=Kotlin>
+* <https://grep.app/search?q=InterruptedIOException&filter[lang][0]=Kotlin>
+
+So, findings so far:
+
+* People do use `InterruptedIOException` interchangeably with
+  `InterruptedException`, like in
+  <https://github.com/Goooler/MaterialFiles/blob/5cfa925af1c6dcb337f921973a1f3e3c873f6d8c/app/src/main/java/me/zhanghai/android/files/filejob/FileJobs.kt#L217-L221>
+* Some people do separately process `InterruptedIOException` when it signifies a
+  timeout, like in
+  <https://github.com/pebble-dev/mobile-app/blob/f167a1abb853246be557234335fb933009f828ff/android/app/src/main/kotlin/io/rebble/cobble/bluetooth/BlueGATTServer.kt#L414>
+* Some people do process `InterruptedIOException` similarly to
+  `InterruptedException`, like in
+  <https://github.com/bootstraponline/mirror-goog-studio-main/blob/7ff4a35e41005631dff968bc954ae1cdb756552f/adblib/src/com/android/adblib/AdbPipedInputChannelImpl.kt#L110>
+
+Additional information:
+
+> By convention, any method that exits by throwing an InterruptedException clears interrupt status when it does so.
+
+(from <https://docs.oracle.com/javase/tutorial/essential/concurrency/interrupt.html>)
+
+However, this is *not* the case for `InterruptedIOException`:
+
+```kotlin
+package r3551
+
+import java.io.InterruptedIOException
+import java.net.*
+
+fun main() {
+    val url = URL("https://www.google.com")
+    Thread.currentThread().interrupt()
+    val conn: HttpURLConnection = url.openConnection() as HttpURLConnection
+    conn.connectTimeout = 1
+    try {
+        println(conn.responseCode)
+    } catch (e: InterruptedIOException) {
+        println(Thread.currentThread().isInterrupted)
+        // true
+    }
+}
+```
+
+In fact, `conn` here will ignore thread interruptions:
+
+```kotlin
+package r3551
+
+import java.io.InputStream
+import java.io.InterruptedIOException
+import java.net.*
+
+fun main() {
+    val url = URL("https://www.google.com")
+    Thread.currentThread().interrupt()
+    val conn: HttpURLConnection = url.openConnection() as HttpURLConnection
+    conn.connectTimeout = 1000
+    try {
+        println((conn.content as InputStream).readAllBytes().toString(Charsets.UTF_8))
+    } catch (e: InterruptedIOException) {
+        println(Thread.currentThread().isInterrupted)
+    }
+}
+```
+
+This will successfully print some HTML, nothing is aware of the thread being
+interrupted.
+
+All of this is enough to provide a response:
+<https://github.com/Kotlin/kotlinx.coroutines/issues/3551#issuecomment-1366665603>
+
+
+Now, for my last two days before a vacation, I have a task of reviewing
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3537>. Wish me luck, that's a
+portion of the library that I'm completely unfamiliar with.
+
+
+Reading `WorkQueue.kt`. Some questions:
+
+<https://github.com/Kotlin/kotlinx.coroutines/blob/41a2e30da45bbc70de4c7aafe23777f01b006c8a/kotlinx-coroutines-core/jvm/src/scheduling/WorkQueue.kt#L44-L47>
+Wouldn't it be better to say this?
+```
+     * The only harmful race is:
+     * [T1] readProducerIndex (1) preemption(2) readConsumerIndex(4)
+     * [T2] changeProducerIndex (3)
+```
+After all, increasing the consumer index means that the size becomes smaller,
+so, to construct a harmful race, we need the opposite.
+
+<https://github.com/Kotlin/kotlinx.coroutines/blob/41a2e30da45bbc70de4c7aafe23777f01b006c8a/kotlinx-coroutines-core/jvm/src/scheduling/WorkQueue.kt#L84>
+I guess this is free of the race because only the producer could have caused it,
+and it's busy executing this method.
+
+Ah, screw it, I'll just make a separate PR where I add/edit comments according
+to my understanding.
+
+For now, I understood enough to judge the PR.
