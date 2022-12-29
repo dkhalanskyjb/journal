@@ -1196,3 +1196,23 @@ Ah, screw it, I'll just make a separate PR where I add/edit comments according
 to my understanding.
 
 For now, I understood enough to judge the PR.
+
+
+2022-12-29
+----------
+
+The last workday of the year. I'll probably take it slow. I still need to read
+<https://github.com/Kotlin/kotlinx.coroutines/blob/master/kotlinx-coroutines-core/jvm/src/scheduling/CoroutineScheduler.kt>
+
+If I still have some time left after that, I'll probably skim
+<https://unixism.net/loti/index.html>, inspired by an issue that was filed:
+<https://github.com/Kotlin/kotlinx.coroutines/issues/3563>.
+
+Or not. There are many small things like answering questions on various trackers.
+
+
+At the end of the day, no uring for me. Just reading the scheduler and doing
+small things here and there.
+
+Happy New Year to everyone reading! I'll be on a vacation for the next week,
+don't expect any news.
