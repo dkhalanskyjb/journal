@@ -1216,3 +1216,30 @@ small things here and there.
 
 Happy New Year to everyone reading! I'll be on a vacation for the next week,
 don't expect any news.
+
+2022-01-09
+----------
+
+Back from the holidays. There's a bunch of code reviews in coroutines that I
+should do.
+
+The most challenging one is <https://github.com/Kotlin/kotlinx.coroutines/issues/3578>.
+Currently I'm trying and failing to understand what exactly is going on there.
+
+Throughout the day, I answered a couple of issues and reviewed several pull
+requests.
+
+2022-01-10
+----------
+
+Filed <https://github.com/square/okhttp/issues/7647>. From my library-writer
+perspective, storing some resource (like a thread pool, or a clock, or something
+like this) instead of providing a way of supplying it is a big no-go, except in
+cases of all-encompassing frameworks, which I also really dislike.
+It will be interesting to see if, in some cases, this is okay.
+
+Continuing my experiments with
+<https://github.com/Kotlin/kotlinx.coroutines/issues/3578>.
+
+After that, I am busy implementing the draft of the datetime formatting.
+Mostly some plumbing.
