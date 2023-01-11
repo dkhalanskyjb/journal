@@ -1517,3 +1517,63 @@ Locale: my
 
 This is in agreement with CLDR's data which states that the period of day should
 be used.
+
+The next step is to find out how these symbols are translated into factual
+times. Does the table above tell the whole story? In the Russian locale, the
+cutoffs seem to be at 00, 03, 12, and 18 hours, but for `my`, these are
+00, 12, 16, and 19. Clearly not a off-by-one error.
+
+Let's compare the entries between `my.xml` and `ru.xml`:
+
+```xml
+<dayPeriodWidth type="abbreviated">
+        <dayPeriod type="midnight">သန်းခေါင်ယံ</dayPeriod>
+        <dayPeriod type="am">နံနက်</dayPeriod>
+        <dayPeriod type="noon">မွန်းတည့်</dayPeriod>
+        <dayPeriod type="pm">ညနေ</dayPeriod>
+        <dayPeriod type="morning1">နံနက်</dayPeriod>
+        <dayPeriod type="afternoon1">နေ့လယ်</dayPeriod>
+        <dayPeriod type="evening1">ညနေ</dayPeriod>
+        <dayPeriod type="night1">ည</dayPeriod>
+</dayPeriodWidth>
+```
+
+```xml
+<dayPeriodWidth type="abbreviated">
+        <dayPeriod type="midnight">полн.</dayPeriod>
+        <dayPeriod type="am">AM</dayPeriod>
+        <dayPeriod type="noon">полд.</dayPeriod>
+        <dayPeriod type="pm">PM</dayPeriod>
+        <dayPeriod type="morning1">утра</dayPeriod>
+        <dayPeriod type="afternoon1">дня</dayPeriod>
+        <dayPeriod type="evening1">вечера</dayPeriod>
+        <dayPeriod type="night1">ночи</dayPeriod>
+</dayPeriodWidth>
+```
+
+Nothing stands out, really.
+
+Googling `"evening1" cldr`, I found this helpful list that answers the question
+exactly:
+<https://unicode-org.github.io/cldr-staging/charts/38/supplemental/day_periods.html>
+
+Sure enough, `common/supplemental/dayPeriods.xml` does contain the table.
+
+**So**, the main finding: the correspondence between local times and day periods
+is *itself* subject to localization, not just in the textual representation.
+
+
+With this out of the way, let's work on coroutines.
+Vsevolod proposed a fix <https://github.com/Kotlin/kotlinx.coroutines/pull/3584>
+for <https://github.com/Kotlin/kotlinx.coroutines/issues/3578>, but, with what
+I've written in that issue, I think a more structured approach is possible.
+I'll try that.
+
+However, not being able to test our changes bothers me.
+Surely there is a way to pinpoint this issue.
+I have an idea, let's prototype it.
+
+But also, the proposed fix failed the build. It's irrelevant, just a flaky test,
+but why is it flaky? Looking at it, it looks like some thread did nothing for
+half a second. Is this sensibly possible? Let's try running the test in a loop
+and see if the issue reproduces.
