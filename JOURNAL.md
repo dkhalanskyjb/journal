@@ -1243,3 +1243,277 @@ Continuing my experiments with
 
 After that, I am busy implementing the draft of the datetime formatting.
 Mostly some plumbing.
+
+2022-01-11
+----------
+
+Finalizing the parsing of local times, I finally have to encounter my foe, which
+is the `B` "period-of-day" designator. It won't be part of the initial release,
+due to us not having any notion of locales and this being wildly
+locale-dependent, but what can you do, I still must research it so that later,
+there are no unpleasant surprises that will force us to change something
+radically.
+
+So, the language where this is majorly needed is Chinese.
+
+I'm irritated that I can't/(don't know how to) force the IDE to run a test in
+JDK 16, which is the one that supports `'B'`. My `JAVA_HOME` points to 1.8, so
+that's what attempts to launch my code, which is
+```kotlin
+println(System.getProperty("java.version"))
+val formatter = DateTimeFormatter.ofPattern("Bh:mm", Locale("zh_Hant"))
+println(formatter.format(java.time.LocalTime.of(23, 12)))
+```
+
+Looks like though that it's Gradle that's preventing the use of a non-standard
+JDK, as this also fails:
+```
+JAVA_HOME=$JDK_16_0 ./gradlew jvmTest --tests kotlinx.datetime.test.X
+```
+
+I guess it does the right thing and I just have to accept it and define a
+separate project that would use JDK 16.
+
+Let's do that!
+
+Here's a snippet from my gradle config:
+
+```kotlin
+kotlin {
+    jvm {
+        compilations.all {
+            kotlinOptions.jvmTarget = "16"
+        }
+
+```
+
+Oh. With this, I can't run my test at all, "the wrong bytecode version".
+So, it actually chooses the wrong JDK to run my tests.
+Let's see what JDK it chooses (left-click on the project name, then press F4;
+frankly, I'm always entertained by people that claim that they don't want to
+learn CLI commands because that's too much work and they want to get straight
+to programming, but are fine with the insanely arbitrary things you have to do
+in an IDE).
+
+Hey, it's using JDK 11, from my `$HOME`!
+
+Let's read how to change this from the IDE:
+<https://www.jetbrains.com/help/idea/gradle-jvm-selection.html#jvm_settings>
+
+So, Shift+Shift, "gradle JVM", aha, found the option. Set it to JDK 16.
+
+```
+Could not open init generic class cache for initialization script '/tmp/wrapper_init3.gradle' (/home/dmitry.khalanskiy/.local/share/gradle/caches/6.6.1/scripts/e3247asfie2qgl1q2ghywy5r5).
+> BUG! exception in phase 'semantic analysis' in source unit '_BuildScript_' Unsupported class file major version 60
+
+* Try:
+Run with --stacktrace option to get the stack trace. Run with --info or --debug option to get more log output. Run with --scan to get full insights.
+```
+
+Simply amazing.
+```sh
+rm -rf ~/.local/share/gradle
+rm -r ~/.cache/
+```
+
+Restart the IDE, because surely it's not prepared for this:
+```sh
+pkill java
+```
+
+Ok, the whole IDE has hanged after I restarted it. Time to go grab some lunch.
+
+Half an hour later, I'm back from lunch, and I may have murdered the IDE,
+it seems. Everything's still stuck.
+
+... It's unstuck, but now it's decided to use JDK 16 for the datetime library.
+
+I wonder how people actually get any work done in the Java ecosystem.
+I've read a whole book on Gradle, went through a very intensive Java course, am
+busy interacting with fairly infrastructural things in that same ecosystem, and
+still I'm easily dismayed by the state of all Java.
+
+... Oh, no, in fact, it's fine, it's just the IDE that thinks I'm using JDK 16,
+in fact, 1.8.0 is still used to run that test. The opposite of what I want.
+
+Let's look at the project that I created specifically for using JDK 16.
+
+```
+A problem occurred configuring root project 'datetimeExampleProject'.
+> Could not resolve all artifacts for configuration ':classpath'.
+   > Could not resolve org.jetbrains.kotlin:kotlin-gradle-plugin:1.7.0.
+     Required by:
+         project : > org.jetbrains.kotlin.multiplatform:org.jetbrains.kotlin.multiplatform.gradle.plugin:1.7.0
+      > The consumer was configured to find a runtime of a component compatible with Java 11, packaged as a jar, and its dependencies declared externally. However we cannot choose between the following variants of org.jetbrains.kotlin:kotlin-gradle-plugin:1.7.0:
+```
+
+Ah, the "Gradle JVM" setting reset itself. Let's set it to JDK 16 again.
+```
+Could not open init generic class cache for initialization script '/tmp/wrapper_init5.gradle' (/home/dmitry.khalanskiy/.local/share/gradle/caches/6.6.1/scripts/c2pgg9tmxpusa0cr9f8rpksc1).
+> BUG! exception in phase 'semantic analysis' in source unit '_BuildScript_' Unsupported class file major version 60
+```
+
+Ok. What about running it in the console?
+
+```
+$ JAVA_HOME=$JDK_16_0 ./gradlew jvmTest --tests Check --info
+...
+* What went wrong:
+A problem occurred configuring root project 'datetimeExampleProject'.
+> Could not resolve all artifacts for configuration ':classpath'.
+   > Could not resolve org.jetbrains.kotlin:kotlin-gradle-plugin:1.7.0.
+     Required by:
+         project : > org.jetbrains.kotlin.multiplatform:org.jetbrains.kotlin.multiplatform.gradle.plugin:1.7.0
+      > The consumer was configured to find a runtime of a component compatible with Java 16, packaged as a jar, and its dependencies declared externally. However we cannot choose between the following variants of org.jetbrains.kotlin:kotlin-gradle-plugin:1.7.0:
+```
+
+Usually, I would say that I give up, but I don't really have that option.
+Also, to be defeated by something so dumb would be really stupid.
+Maybe I'm just not cut out for this.
+
+Oh, I just needed to specify a more recent Gradle wrapper, I think.
+Thanks, Stack Overflow! <https://stackoverflow.com/a/73742298/20886821>
+
+So, that wasn't fun.
+
+In the end, let's see what is the output of this:
+```kotlin
+val chinese = Locale("zh_Hant")
+val formatter = DateTimeFormatter.ofPattern("Bh:mm", chinese)
+for (i in 0..23) {
+    val time = java.time.LocalTime.of(i, 12)
+    println(formatter.format(time))
+}
+```
+
+```
+AM12:12
+AM1:12
+AM2:12
+AM3:12
+AM4:12
+AM5:12
+AM6:12
+AM7:12
+AM8:12
+AM9:12
+AM10:12
+AM11:12
+PM12:12
+PM1:12
+PM2:12
+PM3:12
+PM4:12
+PM5:12
+PM6:12
+PM7:12
+PM8:12
+PM9:12
+PM10:12
+PM11:12
+```
+
+Wow. Really underwhelming. It's just AM/PM. This can't be right, or can it?..
+Maybe my build of JDK just lacks the required locale information?
+
+```
+for (locale in Locale.getAvailableLocales()) {
+    println("\nLocale: ${locale}")
+    val formatter = DateTimeFormatter.ofPattern("a B h:mm", locale)
+    for (i in 0..23) {
+        val time = java.time.LocalTime.of(i, 12)
+        println(formatter.format(time))
+    }
+}
+```
+
+Maybe not:
+```
+Locale: ru_RU
+AM ночи 12:12
+AM ночи 1:12
+AM ночи 2:12
+AM ночи 3:12
+AM утра 4:12
+AM утра 5:12
+AM утра 6:12
+AM утра 7:12
+AM утра 8:12
+AM утра 9:12
+AM утра 10:12
+AM утра 11:12
+PM дня 12:12
+PM дня 1:12
+PM дня 2:12
+PM дня 3:12
+PM дня 4:12
+PM дня 5:12
+PM вечера 6:12
+PM вечера 7:12
+PM вечера 8:12
+PM вечера 9:12
+PM вечера 10:12
+PM вечера 11:12
+```
+
+And for the `my` locale, the AM/PM markers are not always the same as the
+period-of-day specification, notice the second half of day:
+```
+Locale: my
+နံနက် နံနက် 12:12
+နံနက် နံနက် 1:12
+နံနက် နံနက် 2:12
+နံနက် နံနက် 3:12
+နံနက် နံနက် 4:12
+နံနက် နံနက် 5:12
+နံနက် နံနက် 6:12
+နံနက် နံနက် 7:12
+နံနက် နံနက် 8:12
+နံနက် နံနက် 9:12
+နံနက် နံနက် 10:12
+နံနက် နံနက် 11:12
+ညနေ နေ့လယ် 12:12
+ညနေ နေ့လယ် 1:12
+ညနေ နေ့လယ် 2:12
+ညနေ နေ့လယ် 3:12
+ညနေ ညနေ 4:12
+ညနေ ညနေ 5:12
+ညနေ ညနေ 6:12
+ညနေ ည 7:12
+ညနေ ည 8:12
+ညနေ ည 9:12
+ညနေ ည 10:12
+ညနေ ည 11:12
+```
+
+The correct way to print short time, according to the JDK, is this:
+```
+Locale: my
+နံနက် 0:12
+နံနက် 1:12
+နံနက် 2:12
+နံနက် 3:12
+နံနက် 4:12
+နံနက် 5:12
+နံနက် 6:12
+နံနက် 7:12
+နံနက် 8:12
+နံနက် 9:12
+နံနက် 10:12
+နံနက် 11:12
+နေ့လယ် 12:12
+နေ့လယ် 13:12
+နေ့လယ် 14:12
+နေ့လယ် 15:12
+ညနေ 16:12
+ညနေ 17:12
+ညနေ 18:12
+ည 19:12
+ည 20:12
+ည 21:12
+ည 22:12
+ည 23:12
+```
+
+This is in agreement with CLDR's data which states that the period of day should
+be used.
