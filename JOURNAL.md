@@ -1577,3 +1577,75 @@ But also, the proposed fix failed the build. It's irrelevant, just a flaky test,
 but why is it flaky? Looking at it, it looks like some thread did nothing for
 half a second. Is this sensibly possible? Let's try running the test in a loop
 and see if the issue reproduces.
+
+After 14 hours, it didn't reproduce.
+
+
+2022-01-12
+----------
+
+Looking into the debug infrastructure in the coroutines library.
+Unfortunately, it seems like only the JVM implementation supports assertions
+that can be dynamically enabled.
+
+Meanwhile, without testing the *actual* problem, I wrote a fix that, to me,
+seems robust enough: <https://github.com/Kotlin/kotlinx.coroutines/pull/3585>.
+
+Since I'm already looking into the various types of clocks, let's see the other
+surprises down the road.
+<https://en.wikipedia.org/wiki/24-hour_clock> leads to this:
+<https://en.wikipedia.org/wiki/Thai_six-hour_clock>
+The other pages that explain different clock systems are all about systems that
+are no longer used.
+
+> The six-hour clock is a traditional timekeeping system used in the Thai and
+> formerly the Lao language and the Khmer language, alongside the official
+> 24-hour clock.
+
+The JVM just uses the 24-hour clock, which is nice.
+The 6-hour clock is not accessible via the "period of day" designator either:
+```
+กลางคืน 12:12
+กลางคืน 1:12
+กลางคืน 2:12
+กลางคืน 3:12
+กลางคืน 4:12
+กลางคืน 5:12
+ในตอนเช้า 6:12
+ในตอนเช้า 7:12
+ในตอนเช้า 8:12
+ในตอนเช้า 9:12
+ในตอนเช้า 10:12
+ในตอนเช้า 11:12
+ในตอนบ่าย 12:12
+บ่าย 1:12
+บ่าย 2:12
+บ่าย 3:12
+ในตอนเย็น 4:12
+ในตอนเย็น 5:12
+ค่ำ 6:12
+ค่ำ 7:12
+ค่ำ 8:12
+กลางคืน 9:12
+กลางคืน 10:12
+กลางคืน 11:12
+```
+
+This is different from the markers Wikipedia lists:
+* `โมงเช้า`
+* `บ่าย...โมง`
+* `...ทุ่ม`
+* `ตี...`
+
+Let's search CLDR for that last hieroglyph, "a fish above a heart".
+Nope, too many matches. But not a single one for `โมงเช้า`.
+So, I guess nobody implements this in practice.
+
+Therefore, the conclusion: we only need to support 12- and 24-hour time.
+
+
+Not really in the mood today to write any code, so I'll look into the remaining
+reviews.
+
+Have read through the docs in `DebugProbes.kt`, going through
+`DebugProbesImpl.kt`.
