@@ -1649,3 +1649,37 @@ reviews.
 
 Have read through the docs in `DebugProbes.kt`, going through
 `DebugProbesImpl.kt`.
+
+
+2022-01-13
+----------
+
+Asking the legal team about
+<https://daniel.haxx.se/blog/2023/01/08/copyright-without-years/>.
+Would be relieved to drop the copyright year from our notices.
+
+Crunching the draft of datetime formatting.
+Huge chance of it coming out next week. The only thing's left is to actually
+churn out the code.
+
+
+I wonder if I was right when I implemented "find" on a `DateFormat` to only
+consider the positions that don't start inside numbers **or words**.
+In Chinese or Japanese, for example, there are no spaces, right?
+So, the format "年yyyy" would never be found in a text like
+"時は年2023。". The example is synthetic, since in Japanese and Chinese,
+the year number, it seems, goes before the "年", but there could well be some
+cases where this would be a problem, even if I, not knowing either of the
+languages, did not find a natural example immediately.
+
+Oh, the troubles of doing true internationalization.
+
+I guess we'll have to allow patterns that start in the middle of a word then.
+How do we do that without permitting `OUTCOME` to be parsed as `UTC`?
+
+I think the following scheme is in order: for each parsing operation, define
+from which characters it's okay to start it. For example, a "string set"
+parsing operation would disallow parsing from the middle of the word, while
+"numeric span" can not be started in the middle of a number.
+I don't see any issues with trying to parse a string constant from the middle of
+a word though.
