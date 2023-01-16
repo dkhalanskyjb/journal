@@ -1683,3 +1683,77 @@ parsing operation would disallow parsing from the middle of the word, while
 "numeric span" can not be started in the middle of a number.
 I don't see any issues with trying to parse a string constant from the middle of
 a word though.
+
+TODO:
+* Remove `Accessor` from `FieldSpec`
+* Merge `FieldSpec` with `TemporalField`
+  - Two-dimensional hierarchy:
+    logical type of the field (date vs time vs period etc), and
+    Kotlin-type of the field (int vs long).
+* Define collections of the form `TemporalField -> Accessor`
+
+
+2022-01-16
+----------
+
+Funny observation: even though our datetime formatting API has some fairly
+specific requirements compared to Java's, during the cleanup, I still am
+noticing that our *internal* API becomes more and more similar to Java's public
+one. And who knows, maybe, eventually, requirements will force us to open up
+that API as well.
+
+Meanwhile, I am happy/disappointed to remove
+```kotlin
+internal class Accessor<Object, Field>(
+    // no idea how much use in these "inline val" and "@JvmField" directives are,
+    // but the idea is for `Accessor` to be as lightweight as possible.
+    // TODO: someone more competent in Kotlin should look at this.
+    @JvmField inline val getter: Object.() -> Field?,
+    @JvmField inline val setter: Object.(Field) -> Unit,
+    @JvmField inline val name: String,
+) {
+    inline fun get(obj: Object): Field = getter(obj) ?: throw IllegalArgumentException("Field '$name' is not set")
+    inline fun set(obj: Object, value: Field) = setter(obj, value)
+}
+```
+
+as well as all the code that uses it.
+
+I initially introduced it as just a `getter`/`setter` pair. Then, I added a way
+to compose them, lens-like. Then, I decided *not* to use lens composition, but
+I noticed that I needed to know the name of the field. *Then*, I noticed that I
+had tons of code like
+```kotlin
+Accessor(IncompleteLocalDate::year, { year = it }, "year")
+```
+
+But I'm duplicating lots of information! I could instead just do this:
+```kotlin
+internal fun<Object, Field> KMutableProperty1<Object?, Field>.toAccessor(): Accessor<Object, Field> =
+    Accessor({ this@toAccessor.get(this) }, { this@toAccessor.set(this, it) }, name)
+```
+
+But then... Why am I having an `Accessor` in the first place?
+Essentially, it performs two functions:
+* Point to a mutable nullable field,
+* And complain when trying to get the field when it's null.
+
+There is also some code that defines non-field accessors:
+```kotlin
+Accessor(
+    { nanosecond?.let { DecimalFraction(it, 9) } },
+    { nanosecond = it.fractionalPartWithNDigits(9) },
+    "nanosecond"
+)
+```
+
+However, it can be extracted to a property no problem:
+```kotlin
+internal var IncompleteLocalTime.fractionOfSecond: DecimalFraction?
+    get() = nanosecond?.let { DecimalFraction(it, 9) }
+    set(value) {
+        nanosecond = value?.fractionalPartWithNDigits(9)
+    }
+```
+
+Then the accessor becomes just `IncompleteLocalTime::fractionOfSecond`.
