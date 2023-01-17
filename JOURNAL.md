@@ -1757,3 +1757,57 @@ internal var IncompleteLocalTime.fractionOfSecond: DecimalFraction?
 ```
 
 Then the accessor becomes just `IncompleteLocalTime::fractionOfSecond`.
+
+
+2022-01-17
+----------
+
+>  13 files changed, 128 insertions(+), 223 deletions(-)
+
+My favourite kind of changes.
+
+Meanwhile, learning about
+<https://kotlinlang.org/docs/delegated-properties.html> in Kotlin, as
+I think this could very much help with the fact that I have dozens of properties
+exactly like this one:
+```kotlin
+    override var totalHours: Int? = totalHours
+        set(value) {
+            forbidReassignment(field, value, "totalHours")
+            field = value
+        }
+```
+where
+```kotlin
+internal fun <T> forbidReassignment(oldValue: T?, newValue: T?, name: String) {
+    require(oldValue != null || oldValue == newValue) {
+        "Attempting to assign conflicting values '$oldValue' and '$newValue' to field '$name'"
+    }
+}
+```
+
+Sure enough!
+>  14 files changed, 142 insertions(+), 271 deletions(-)
+
+This change added 14 lines, but took away 48 lines of boilerplate.
+
+My limit for today is this:
+>  15 files changed, 142 insertions(+), 317 deletions(-)
+
+Alas, at some point, you do have to write code.
+
+
+... Or not!
+
+Separating responsibilities is always good. Why are the *fields* concerned with
+not rewriting anything? It's not their business at all. The idea behind this was
+that the parsed values have to be in agreement--but why should we forbid the
+user from rewriting the field in the result they obtain (in case it's mutable)?
+It's our problem to ensure this, not something for the user to be concerned
+with.
+
+This insight improved the API, but also...
+
+>  15 files changed, 135 insertions(+), 332 deletions(-)
+
+I am content with this.
