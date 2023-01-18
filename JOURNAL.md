@@ -1811,3 +1811,13 @@ This insight improved the API, but also...
 >  15 files changed, 135 insertions(+), 332 deletions(-)
 
 I am content with this.
+
+
+2022-01-18
+----------
+
+Tough day. Feeling a bit sick. The progress is slow, but I'm trudging through
+the datetime formatting draft. A bit sick of that as well. I'll likely switch to
+some coroutine work for the rest of the week. Unless I actually fall ill.
+Good thing that there's no one but me in my office room today, or I'd have to be
+wary of potentially transmitting something.
