@@ -1828,3 +1828,18 @@ wary of potentially transmitting something.
 Still feel a bit ill, but to a leser degree. Now I'm just exhausted.
 I'm going to read the DebugProbes pull requests.
 No strength to actually write code now.
+
+Also, I need to fix my computer. Something's messed up in my Ubuntu
+installation, so packages look up the wrong libraries. It's come so far that
+Firefox silently refuses to open the file picker. Perhaps something's wrong with
+my package sources, maybe some of them point to the wrong Ubuntu version?
+
+In `/etc/apt/sources.list`, I see that I'm using "jammy", which, it seems,
+is 22.04. No harm in upgrading to 22.10. Maybe 22.04 is no longer supported.
+No idea about anything regarding the Ubuntu stability guarantees these days.
+Who does still use it, anyway?
+<https://www.phoronix.com/news/Steam-Survey-May-2022>
+apparently, the majority.
+
+So, couldn't fix the system after all. Moving my configuration to user-level
+`nix` installation.
