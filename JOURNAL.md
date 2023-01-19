@@ -1821,3 +1821,10 @@ the datetime formatting draft. A bit sick of that as well. I'll likely switch to
 some coroutine work for the rest of the week. Unless I actually fall ill.
 Good thing that there's no one but me in my office room today, or I'd have to be
 wary of potentially transmitting something.
+
+2022-01-19
+----------
+
+Still feel a bit ill, but to a leser degree. Now I'm just exhausted.
+I'm going to read the DebugProbes pull requests.
+No strength to actually write code now.
