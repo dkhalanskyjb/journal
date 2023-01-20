@@ -1890,3 +1890,32 @@ counter contained `+ n`, this means there are some tasks to do, so we grab one.
 
 The result of the work is
 <https://github.com/Kotlin/kotlinx.coroutines/pull/3595>.
+
+After pushing it to the CI, I was greeted with the surprising
+```kotlin
+(new) MultithreadedDispatcherStressTest.testClosingNotDroppingTasks
+
+java.lang.AssertionError: 1 threads expected:<10000> but was:<1097>
+```
+
+This means that the dispatcher may well drop some tasks when `close()` is
+called. But how? I've made sure it didn't happen, the test didn't fail locally,
+so what's going on? Hey, wait...
+
+> `java.lang`
+
+So, this is not an issue with my implementation at all!
+This is broken in the JVM code!
+
+Maybe a bit out of scope for my PR. I'll take a look at what's going on though.
+
+Oh, maybe it's not *broken* in the JVM code, I just misread the docs. They state
+that, when calling `close()`, the tasks that were already successfully submitted
+will still run. They do! But *in parallel*, `close()` doesn't wait for them.
+It's simply calling `ExecutorService.shutdown()` without `awaitTermination`.
+I changed this in order to learn the thoughts of colleagues about this, but
+don't actually feel one way or the other about this.
+
+Just noticed that all my commits are `2022-XX-YY`, even though it's 2023
+already. I'm having troubles like this since the childhood. Won't be amending
+the git commit messages yet. Will do that once there's some damage done by this.
