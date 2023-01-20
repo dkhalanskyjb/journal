@@ -1887,3 +1887,6 @@ before terminating: we can't allow the workers to die off when there's still
 a number of tasks to process. Then, if the counter contained `- n`, this means
 we're just another worker going to sleep (and so we fall asleep), but if the
 counter contained `+ n`, this means there are some tasks to do, so we grab one.
+
+The result of the work is
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3595>.
