@@ -1843,3 +1843,47 @@ apparently, the majority.
 
 So, couldn't fix the system after all. Moving my configuration to user-level
 `nix` installation.
+
+
+2022-01-20
+----------
+
+Didn't quite manage to keep my journal going, as there are some things that I
+failed to list.
+
+Right now I'm working on
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3576>, basically utilizing
+the suggestion <https://github.com/Kotlin/kotlinx.coroutines/pull/3576#issuecomment-1396817076>
+I made.
+I'm basically repeating the pattern of SegmentQueueSynchronizer:
+<https://github.com/Kotlin/kotlinx.coroutines/pull/2045>
+
+There are two queues, one for workers that have nothing to do, and one for
+tasks that couldn't find a worker to execute them. There's also a counter that
+stores either `+ number of pending tasks` or `- number of parked workers`.
+Both values can't be non-zero at the same time, so it's okay to use only one
+number to represent both. Also, this counter uses one bit to represent whether
+or not new tasks are allowed to enter the queue.
+
+When someone modifies the counter, they promise that they will restore the
+state of the queues to what the counter says. Luckily, this can be done in a
+single atomic operation!
+
+When a task arrives, it atomically adds 1 if the dispatcher is not already
+closed. If the counter contained `- n`, this means that now one less worker
+must be waiting for a task. So, the task wakes up a worker from the queue and
+tells it specifically to execute it. Otherwise, the counter contained `+ n`,
+which means that there were `n` tasks waiting already, and the number just
+increased, so the right thing to do is to also enter the queue. Before that,
+we try allocating the worker to let the dispatcher know that it must do
+something about the tasks piling up. This may fail if workers can't be
+allocated anymore due to the limit being reached.
+
+When a worker is done with the current work, or is created initially, it
+subtracts 1 unless the dispatcher is already closed *and there are no tasks
+left to process in the global queue*. The latter condition is necessary to
+uphold the contract that the thread pool successfully executes all the work
+before terminating: we can't allow the workers to die off when there's still
+a number of tasks to process. Then, if the counter contained `- n`, this means
+we're just another worker going to sleep (and so we fall asleep), but if the
+counter contained `+ n`, this means there are some tasks to do, so we grab one.
