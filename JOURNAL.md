@@ -2054,7 +2054,36 @@ Things to do (the list is non-exhaustive, maybe there's something else):
   confident in.
 * Fix <https://github.com/Kotlin/kotlinx.coroutines/issues/3179> by providing
   some nice API.
+* Review <https://github.com/Kotlin/kotlinx.coroutines/pull/3593>.
 * Finish work on <https://github.com/Kotlin/kotlinx.coroutines/pull/3595>.
   It seems like the changes to the JVM implementation are undesired:
   @qwwdfsad noted that this would lead to a deadlock if `close` was called from
   inside the thread pool itself, which is a very unpleasant breaking change.
+
+Let's start the week with the busywork first: read the PRs, make small fixes.
+The difficult part of implementing a new API is for Tuesdays.
+
+... Or so I thought. I went from down to up in my list of tasks and got stuck on
+the task -3, fixing #3179, which involved writing a lot of code.
+
+For the very simple cases stated in the issue, very simple measures are enough.
+However, implementing broadly applicable features as kludges for a couple of
+specific use cases always leads to someone hopeful using the feature as
+advertised, not as intended by the creators. Such warts are what I dislike about
+Kotlin (the language) the most, and so I strive to avoid this at least in my
+own work.
+
+The main problem is that we want the virtual time to be in sync with the real
+time when waiting for `NoDelaySkipping` tasks.
+
+Some issues that complicate things:
+* A no-delay-skipping event is scheduled at `X`.
+  Then, immediately, a normal event is scheduled at `X/2`.
+  The scheduler executes the event at `X/2`.
+  Now, if we naively look at the time to determine the length of the pause,
+  we'll think that we must sleep for `X/2`, while in fact, we must sleep for
+  the whole `X`.
+* If `advanceUntilIdle` is waiting for some non-delay-skipping event scheduled
+  at some time `X`, but then an event scheduled at time `X/2` arrives, we *must*
+  stop waiting for the original event. The reason is simple: `withTimeout`
+  won't work otherwise.
