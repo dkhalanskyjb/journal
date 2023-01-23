@@ -1919,3 +1919,142 @@ don't actually feel one way or the other about this.
 Just noticed that all my commits are `2022-XX-YY`, even though it's 2023
 already. I'm having troubles like this since the childhood. Won't be amending
 the git commit messages yet. Will do that once there's some damage done by this.
+
+
+2023-01-22
+----------
+
+Just had a very elegant idea about handling numeric signs when formatting
+date/time.
+
+Problem statement:
+```
+d<+yyyy-mm-dd>
+```
+means "output the year with the leading sign always".
+This sign isn't related to months or days, only to years.
+```
+o<+hh:mm:ss>
+```
+means "output the hour-minute-second zone offset, with the sign prepended".
+The sign relates to the whole offset, but `mm` and `ss` here signify not
+actual numbers, but fractions of the hour, written in a fancy manner.
+
+However, let's look at how we format `DateTimePeriod`:
+```
+P1DT-2H
+```
+means "a period of one day minus two hours".
+```
+-P-1DT2H
+```
+means the same.
+
+So, we have two types of numeric signs: those that affect the number directly
+next to them, and those that affect groups of numbers following them.
+How do we represent this in formats? In fact, how do we represent this
+*anywhere at all*? We could even not give a way to do this outside of builders,
+but *how* would one represent this?
+
+When I raised this question during our internal design discussions, we decided
+to do the following: have a separate directive that would have a global effect.
+For example, `-'P'(|dp<d'D'>)(|'T'tp<h'H'>)`. Here, the minus sign indicates
+"only output the sign here if it's negative"/"the minus sign can be parsed here"
+and will affect all the fields: if there's a sign, all the numeric values are
+negated.
+
+This is a good solution: it covers all the use cases I've found in the wild, and
+it's a rare enough corner case that you never really encounter it unless you
+absolutely have to, in which case you won't have issues with reading a bit of
+documentation. This semantics also works well with the other formats that I
+provided as examples above: as the matter of fact, both dates and offsets only
+have a single field that has a sign, so the fact that the sign works globally is
+not an issue there as well.
+
+Still, this irked me a bit, I never got to implementing this piece of
+functionality, and in fact, forgot about it when writing the cleaned-up draft
+of the PR. Now that the whole architecture is clean and shiny and in place,
+I suddenly remembered about this problem on a nice snowy Sunday morning.
+How do I retrofit this kludge into the codebase?
+
+Well, there's always the solution that can be done in an hour:
+* Forbid all the signs that are not the first directive in the given format.
+  Otherwise, when we parse/output the sign, we'd have to go back to the fields
+  we already set and negate them sometimes: remember, the sign is global, so
+  it affects the things on the left as well!. When we *format* the sign, we'd
+  have to consider what happens in case the sign is in an OR branch, like
+  `B(A|-A)C`. This would mean that `B` and `C` have their signs negated if the
+  `-A` branch is taken. I'd feel stupid wasting a day implementing this
+  properly, given that no one is ever going to use it, just for the sake of
+  completeness.
+* Add a global flag to the parser and the formatter so that, when they encounter
+  the flag, they remember to switch the signs of all the subsequent operations
+  if the sign was negative.
+
+That's a really intrusive measure for such a small feature! It *is* easy to
+implement, understand and work with, but that's exactly it: this is some
+functionality *exactly* for one feature, without rhythm or rhyme. Maybe there's
+a better way.
+
+The "forbid all the signs that are not the first directive" gave me a clue:
+actually, the sign shouldn't be global, it should only affect the things to the
+right of it. This way, the requirement immediately becomes meaningless: no need
+to backtract and reassign values, no need to bother with `B(A|-A)C`: if the `-A`
+branch is taken, we know to output `A` and `C` negated.
+
+This is nice, but still a bit unstructured. Having global state just for the
+"should I negate the things coming after" is also irksome. And also, the mental
+model behind the signs still doesn't feel intuitive. In particular, what should
+happen when there are *several* signs in the format? Logically, "minus by minus
+is plus" etc, but looking at a pattern like `+h 'h' +m 'm' +s 's'`, I certainly
+don't expect `-5 h -4 m +3 s` to mean `-(5 h - (4 m + 3 s))` or whatever. So,
+maybe it's not the right call after all. Could someone concievably make this
+mistake? I think so, yes. Should we just forbid multiple signs per format?
+But there's a nothing fundamental that requires us to. In fact, it's nice to be
+able to write multiple signs per format: it has not only the function of
+describing the expression following them, but also the function of being
+explicit about which signs should be output. For example, `+h` is sometimes
+preferred to just `h` when we want to explicitly output the `+` sign.
+
+So, spanning all the way to the right is also a problem. But there's a nice fix!
+Make the sign directive affect only the one directive that follows it--
+*including if that directive is a complex expression in parens*.
+
+`d<+yyyy-mm-dd>` now means "(+years), then months, then days".
+`o<+hh:mm:ss>` now means "(+total amount of hours), then the minute portion of
+the hour, then the second portion". Or one could write `o<+(hh:mm:ss)>`.
+And `-('P'(|dp<+d'D'>)(|'T'tp<h'H'>))` means
+"output `-` before the period if every component is negative, and also have an
+explicit sign before the days field".
+The best of all worlds! This approach even nicely prevents a bug like
+`+'P'(|dp<+d'D'>)(|'T'tp<h'H'>)` (notice the missing parens) only affecting
+the days directive: we can just complain with something like "the directive
+`'P'` does not have a sign; if you meant the literal `+`, write it in quotes,
+like `'+'`, or wrap the expression whose sign is implied in parentheses".
+
+Incidentally, this is exactly how the signs behave in math in general, so this
+is just the most obvious solution as well. Embarassingly so! This nicely
+indicates that it's correct. Also, it, too, is not difficult to implement.
+I still think I won't put this in the initial draft, it's already time to
+produce some output. Which is partially why I decided to put this into writing
+instead of just implementing it immediately. Who knows when I have the time to
+deal with the signs. 
+
+
+2023-01-23
+----------
+
+We'd like to publish a new release of coroutines soon, so my strength is needed
+there.
+
+Things to do (the list is non-exhaustive, maybe there's something else):
+* Finish reviewing the `DebugProbes` pull requests:
+  <https://github.com/Kotlin/kotlinx.coroutines/pulls?q=is%3Apr+is%3Aopen+debugprobes>
+* Remove the "experimental" mark from the parts of the test framework that we're
+  confident in.
+* Fix <https://github.com/Kotlin/kotlinx.coroutines/issues/3179> by providing
+  some nice API.
+* Finish work on <https://github.com/Kotlin/kotlinx.coroutines/pull/3595>.
+  It seems like the changes to the JVM implementation are undesired:
+  @qwwdfsad noted that this would lead to a deadlock if `close` was called from
+  inside the thread pool itself, which is a very unpleasant breaking change.
