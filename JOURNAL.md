@@ -2087,3 +2087,68 @@ Some issues that complicate things:
   at some time `X`, but then an event scheduled at time `X/2` arrives, we *must*
   stop waiting for the original event. The reason is simple: `withTimeout`
   won't work otherwise.
+
+2023-01-24
+----------
+
+Establishing communication with the copywriting team so that they proofread the
+web pages for the coroutines library:
+<https://github.com/Kotlin/kotlinx.coroutines/tree/master/docs/topics>
+
+Maybe at some point, with their help, the docs will stop being a source of
+frustration and the PRs of the form "this sentence in the docs is inane".
+
+
+In order to understand what to do with the problems of `NoDelaySkipping`,
+I guess there's no way around reading the code for `EventLoop` and such.
+It would be nice to have an option to just call
+```kotlin
+runBlocking {
+  select {
+    // if the time has come to execute the next non-delay-skipping task, do that
+    // if a new task has arrived, look at it
+  }
+}
+```
+
+in the "grab the next task" code. However, there's no such thing on JS.
+It looks like scheduled execution is performed via platform-specific things.
+
+I see that the `EventLoop` is implemented via `park`/`unpark`, with `unpark`
+being called if something happened in parallel that needs to interrupt the
+thread sleeping.
+
+I now remember the reason there's no such thing as `runBlocking` on JS: in
+essence, when you call `fun f()`, there's no way for something to happen in
+parallel to the code in `f`, since there's only a single thread.
+
+So, is there a way, at least in theory, for code like the following to work?
+
+```kotlin
+runTest {
+  val job1 = launch {
+    withContext(NoDelaySkipping) {
+      delay(1000)
+    }
+  }
+  launch(Dispatchers.Default) {
+    job1.cancel()
+  }
+}
+```
+
+`launch(Dispatchers.Default)` puts a task into the global queue. This queue
+doesn't get queried until the scheduler is idle.
+
+Looks like the only way to implement this is to make the scheduler return the
+next non-delay-skipping task to execute, so that the Outer Loop of `runTest`
+waits for either new events, timing out, or this task being ready.
+
+This might just work! But what should we do about non-suspending
+`advanceUntilIdle`? On JS, this question is easy, for a change:
+`advanceUntilIdle` is blocking, nothing can happen while it's called.
+On the JVM and Native, it's a bit more demanding, but they can just contain
+smaller versions of the Outer Loop of `runTest`, with `runBlocking`, using the
+idea from above.
+
+This is probably going to be a mess from the expect/actual perspective.
