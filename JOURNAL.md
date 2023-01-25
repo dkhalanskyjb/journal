@@ -2177,3 +2177,47 @@ the parser compiler for datetime formatting, have read
 to stay on top of new proof techniques when working in a library dedicated to
 concurrency), answered a few people, and all of this after a morningful of a
 German language course.
+
+Let me dump here some of the links that I have open to free up the space in the
+tab list. Even though I use Tree Style Tabs, it's still messy to have so many
+links open.
+
+* <https://firebase.google.com/docs/auth/android/anonymous-auth>
+  <https://github.com/GitLiveApp/firebase-kotlin-sdk/blob/master/firebase-auth/src/androidMain/kotlin/dev/gitlive/firebase/auth/auth.kt>
+  I'm trying to understand whether there's a guarantee that, in the latter link,
+  it is guaranteed that the emission won't happen in an unconfined dispatcher.
+  <https://github.com/Kotlin/kotlinx.coroutines/issues/3506> was the issue where
+  this was raised. If it's not guaranteed, collecting in
+  `Dispatchers.Unconfined` is an error.
+* <https://bugs.openjdk.org/browse/JDK-8066982>
+  I have it open until it's the right moment to send it to
+  <https://github.com/Kotlin/kotlinx-datetime/discussions/237>.
+  The link is a discussion of Java Time's decision to prioritize zone offsets
+  over time zone rules when resolving a `ZonedDateTime`.
+  The gist of it is that they decided to do this because the *immutable*,
+  guaranteed, part of the sent data is the `LocalDateTime` + the offset +
+  the time zone. If the time zone rules change, the implied moment is still
+  defined by the offset. I disagree with this reasoning, because it neglects to
+  consider the *intent* of sending a `ZonedDateTime` over: yes, if someone
+  wanted to send an `Instant` and also a time zone to interpret the instant in,
+  this tradeoff is correct, but is it really more common than wanting to send a
+  `LocalDateTime` along with a time zone in which to interpret it, using an
+  offset as a suggestion in case of resolution ambiguity in case of a time
+  overlap? I'm not at all convinced that it is, and the second use case is just
+  as valid, so it should be at least considered as well.
+* <https://grep.app/search?q=withLaterOffsetAtOverlap>
+  <https://grep.app/search?q=withEarlierOffsetAtOverlap>
+  People *do* use different strategies for resolving time overlaps!
+  The one thing left is to understand why and how.
+* <https://github.com/evansiroky/timezone-boundary-builder>
+  A pain point in datetime API is representing a simple thing of the form
+  "local time in some place". `LocalDateTime` + `TimeZone` is ambiguous in case
+  of a time overlap; time zone rules can change; *and* a time zone in some
+  location can change. You want to say "2024-03-05, 18:00 in Munich", but
+  instead, you say "2024-03-05T18:00+01:00[Europe/Berlin]". If Munich gets its
+  own time zone in 2024, this becomes incorrect. If the offset becomes +02:00
+  due to time zone rules change, this becomes incorrect.
+  *Maybe* we could at some point, certainly outside the datetime library,
+  write something robust by reifying locations.
+* <https://news.ycombinator.com/item?id=32975173>
+  an amusing overview of the datetime insanity.
