@@ -2152,3 +2152,28 @@ smaller versions of the Outer Loop of `runTest`, with `runBlocking`, using the
 idea from above.
 
 This is probably going to be a mess from the expect/actual perspective.
+
+
+2022-01-25
+----------
+
+I've had very good sleep, my head is as clear as it can be.
+
+A very good time to finally internalize the whole debug probes.
+
+
+What a chaotic day. I'm flying between various tasks, unable to ground myself
+on one of them. I guess I'm a bit anxious about providing the datetime
+formatting, which is long overdue. I bought smart watches, they arrive tomorrow,
+let's see which stress level they detect!
+
+With all the flailing, I'm still productive. This goes to show that good sleep
+trumps in usefulness any attempts to structure work nicely when it comes to
+actually doing things.
+
+I've gone quite far in reading `DebugProbesImpl` etc, but also finished writing
+the parser compiler for datetime formatting, have read
+<https://plv.mpi-sws.org/later-credits/paper-later-credits.pdf> (one does have
+to stay on top of new proof techniques when working in a library dedicated to
+concurrency), answered a few people, and all of this after a morningful of a
+German language course.
