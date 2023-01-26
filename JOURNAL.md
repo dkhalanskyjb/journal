@@ -49,8 +49,8 @@ The goals of all of this:
   (I don't in fact work with any Gregory, it's just a hypothetical).
 * Practice writing. Here, I can be witty, or I can sound tired, or I can be
   rambly, or anything else that has no place in actual design documents. Just
-  express myself more naturally. 
-  
+  express myself more naturally.
+
 2022-12-12
 ----------
 
@@ -468,7 +468,7 @@ The full explanation for programmers could be something like this:
 > than `A` and precision is required. For example, `hh:mm(|:ss)` will be
 > formatted as `hh:mm` if the seconds are zero, but as `hh:mm:ss` if the seconds
 > are non-zero (and so `:ss` has more information than just the empty string).
-> 
+>
 > More accurately, when formatting `A|B`, if `B` contains all the fields from
 > `A` whose value is not equal to the default one, but also some additional
 > non-default values, `B` will be used instead of `A`.
@@ -2221,3 +2221,56 @@ links open.
   write something robust by reifying locations.
 * <https://news.ycombinator.com/item?id=32975173>
   an amusing overview of the datetime insanity.
+
+
+2023-01-26
+----------
+
+Regarding the stabilization of the test module:
+
+* `TestScope` is just the way I like it. It's useful and simple. Stable!
+* `runTest` is ok, but a bit messy. The problem is `dispatchTimeoutMs`:
+  looks like nobody understands what it does and it's just an implementation
+  detail that *looks* like a timeout, but doesn't behave like one.
+  Also, barely anybody actually uses it:
+  <https://grep.app/search?q=dispatchTimeoutMs>
+  We can use the fact that we never actually published `runTest` with
+  `dispatchTimeout: Duration` to our advantage: we can deprecate
+  `dispatchTimeoutMs` in favor of `timeout: Duration`, where this `timeout` is
+  the proper whole-test timeout.
+* I don't like the time control mechanism. Test readability really suffers
+  because of it. The majority of tests I've seen that use `runCurrent`, or
+  `advanceUntilIdle`, etc. are either just a soup of difficult-to-comprehend
+  interactions or just of the form like
+  ```kotlin
+  launch {
+    // blah blah
+  }
+  advanceUntilIdle()
+  ```
+  This is just a strange way of saying
+  ```kotlin
+  launch {
+    // blah blah
+  }.join()
+  ```
+  There are tons of options to wait for some operation to finish that are
+  production-ready and don't require time manipulation. Why play god and
+  force the coroutines to run to completion when you can instead reflect
+  directly what happens in your production code? *That said*, just removing
+  the time controls is also not the right call, it seems: some tests use it
+  in a genuinely useful manner. So, I think we should mark
+  `TestCoroutineScheduler` as stable, along with its time controls, but not
+  `TestScope.runCurrent` et al, where they are easily reachable but are more
+  often harmful than not.
+* `setMain` is something we definitely don't want to stabilize as is, as it is
+  problematic: <https://github.com/Kotlin/kotlinx.coroutines/issues/3298>.
+  We will likely have to deprecate `setMain`.
+* For the same reason, while `StandardTestDispatcher` is ok,
+  `UnconfinedTestDispatcher` is often used to emulate
+  `Dispatchers.Main.immediate` due to the reason above.
+  `UnconfinedTestDispatcher` does have its uses, but they are few and far
+  between. So, I think it would be the wrong call to stabilise the uses of
+  `UnconfinedTestDispatcher` at this point. Maybe later, when everyone migrates
+  from `setMain` to something else that is not broken and only the legitimate
+  use cases remain.
