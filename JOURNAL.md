@@ -2274,3 +2274,11 @@ Regarding the stabilization of the test module:
   `UnconfinedTestDispatcher` at this point. Maybe later, when everyone migrates
   from `setMain` to something else that is not broken and only the legitimate
   use cases remain.
+
+
+2023-01-27
+----------
+
+One (hopefully) final push to understand `DebugProbes`. When I'm exhausted by
+that, I write the PR that I described here yesterday. Overall, a nice and quiet
+day of straightforward work.
