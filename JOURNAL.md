@@ -2282,3 +2282,18 @@ Regarding the stabilization of the test module:
 One (hopefully) final push to understand `DebugProbes`. When I'm exhausted by
 that, I write the PR that I described here yesterday. Overall, a nice and quiet
 day of straightforward work.
+
+
+2023-01-28
+----------
+
+Guess I caught a cold. I'll try to work, but if I don't manage to produce
+anything useful today, I'll take a sick leave retroactively.
+
+So far, managed to use Pandoc to upload a tutorial
+<https://kotlinlang.org/docs/coroutines-and-channels.html> to the Google Doc
+for the copyediting team.
+
+Wrote a few lines.
+
+Yeah, not my day, clearly.
