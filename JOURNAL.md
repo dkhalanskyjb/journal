@@ -2297,3 +2297,16 @@ for the copyediting team.
 Wrote a few lines.
 
 Yeah, not my day, clearly.
+
+
+2023-01-29
+----------
+
+Feeling a bit better today, even if still not ideal. Will keep it light for
+today.
+
+Worked the whole day on <https://github.com/Kotlin/kotlinx.coroutines/pull/3603>,
+managed to iron out the problems I found.
+The code is very ugly due to the need to support `runBlockingTest` and
+`dispatchTimeoutMs` for now. When they're gone, everything will be simplified
+and, I hope, a few bugs will surface and be corrected.
