@@ -2284,7 +2284,7 @@ that, I write the PR that I described here yesterday. Overall, a nice and quiet
 day of straightforward work.
 
 
-2023-01-28
+2023-01-30
 ----------
 
 Guess I caught a cold. I'll try to work, but if I don't manage to produce
@@ -2299,7 +2299,7 @@ Wrote a few lines.
 Yeah, not my day, clearly.
 
 
-2023-01-29
+2023-01-31
 ----------
 
 Feeling a bit better today, even if still not ideal. Will keep it light for
@@ -2310,3 +2310,14 @@ managed to iron out the problems I found.
 The code is very ugly due to the need to support `runBlockingTest` and
 `dispatchTimeoutMs` for now. When they're gone, everything will be simplified
 and, I hope, a few bugs will surface and be corrected.
+
+
+2023-02-01
+----------
+
+Lol, just understood that, in my weakened state, I've used the wrong dates in
+the journal. See this commit.
+
+I feel much better. I'll take it slow today as well, but in general, I think
+I'll be fine by tomorrow. Answering some issues in the coroutines issue tracker,
+lazily reviewing pull requests, etc.
