@@ -2321,3 +2321,41 @@ the journal. See this commit.
 I feel much better. I'll take it slow today as well, but in general, I think
 I'll be fine by tomorrow. Answering some issues in the coroutines issue tracker,
 lazily reviewing pull requests, etc.
+
+
+2023-02-02
+----------
+
+I finished everything I wanted to do before the next coroutine release, so we
+can publish it when Vsevolod gets around to it and reviews all my changes
+(and possibly creates some new ones for me to review).
+
+So, I can finally go back to working on datetime formatting.
+
+But first, I want to finish going through the tabs I have. I want nothing to
+distract me from the datetime, so it's better to finish the remnants of the
+other pending work.
+
+<https://github.com/Kotlin/kotlinx.coroutines/issues/3326> is a proposal that
+I think I understand, and I don't see any issues with it, but the use case
+provided is like French to me: no idea about what Jetpack Compose is.
+I think it would be good in general for me to learn what's going on with
+Android development. Quick googling revealed
+<https://dev.to/zachklipp/a-historical-introduction-to-the-compose-reactive-state-model-19j8>
+and <https://dev.to/zachklipp/introduction-to-the-compose-snapshot-system-19cn>.
+The guy who wrote this <https://dev.to/zachklipp> seems fairly deeply into this.
+The name also seems familiar...
+
+Hey, it's this guy: <https://github.com/Kotlin/kotlinx.coroutines/issues/3493>!
+
+
+>     this.text = “Counter: ${counter.value}”
+
+I find this so much more funny than I probably should.
+
+After reading through the articles, I understand the use case.
+I'll still need to think about the "failing from `restoreThreadContext`"
+proposal.
+
+I don't have the time to dig deeper into this, as I need to go to the
+standard library design meeting.
