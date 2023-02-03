@@ -2359,3 +2359,89 @@ proposal.
 
 I don't have the time to dig deeper into this, as I need to go to the
 standard library design meeting.
+
+
+2023-02-03
+----------
+
+I'm a confident user of the coroutines library, to the point where I can work
+on some derivative libraries, like `kotlinx-coroutines-test` or the
+reactive integrations, but the implementation of the coroutines themselves is
+not something I'm proficient in. If `JobSupport` is involved, I'm more or less
+out. I *do* understand continuation-passing style, I've even written a Scheme
+interpreter, and I do understand the concept of state machines that `suspend`
+functions compile into, and even the `ContinuationInterceptor` stuff, but what
+is a coroutine but some thing that somehow vaguely chains `suspend` calls into
+a linear execution? I don't really have to dig into this.
+
+Which is why it took me half a day to write
+<https://github.com/spring-projects/spring-framework/pull/27308#discussion_r1095746663>.
+The use case of intercepting continuations really made me excercise my
+understanding: what's the actual role of the `Job` in the context? When code
+completes, does it check its context for a `Job` to complete? Are these things
+like `Future`, just attached to a coroutine in a context, queried on every
+suspension and when the code finishes, and able to form a hierarchy?
+
+*A bit* like that, but there's some wild inheritance going on in the coroutines
+library. A coroutine *is* a `Job` (that much I've already actually noticed),
+but also it's *itself* a `Continuation`. So, actually, no, the `Job` is not
+attached to a coroutine, and a coroutine does not just orchestrate
+continuations, these are all the same thing. When a continuation that is a
+coroutine resumes with some value, that value goes through the `Job`
+machinery of that same object, with no dynamic dispatch or context querying.
+So, it looks like it should be possible to do some very nasty unstructured
+things in the coroutines library, like, for example, setting a `Job` of
+some coroutine to something other than it itself is.
+
+However, I see that, it looks like, we protect against this by carefully
+choosing what to expose. The mechanism to affect the coroutine context is
+`withContext`, and yes, one can pass arbitrary jobs there, including
+`NonCancellable` (which is essentially lack of a job), but `withContext`
+is scoped and has the clear behavior of restoring everything when that scope is
+exited.
+
+So, it looks like removing `Job` will affect the behavior of `ensureActive()`
+but not the resumption. Thus, its job there is actually to serve the purpose of
+cancellation.
+
+However, not passing a `Job` when creating a coroutine decides whether or not
+the new coroutine will be structurally considered a subservient of the old one:
+whether cancelling the old one also cancel the new one, whether any failure in
+the new one lead to the old one also cancelling, and whether the old one should
+wait for the new one on `join`.
+
+So, how do these concerns work out for Spring? We should note that Spring does
+something the purpose of which I don't understand (which is irrelevant to the
+discussion): they intercept a coroutine, put it in a Reactor `Mono` (a thing
+I've worked on and am familiar with), and then run
+`theNewMono.awaitSingleOrNull()` with the old job from the original coroutine.
+It seems fairly natural to suggest removing a middleman and just calling the
+code directly, but maybe they also inject diagnostics, or some other additional
+code, etc. In any case, they have their reasons, I don't doubt that.
+
+So, in essence, the question is the following: are the following two snippets
+equivalent?
+
+
+```kotlin
+mono(currentCoroutineContext().minusKey(Job)) {
+  A
+}.awaitSingleOrNull()
+```
+and
+
+```kotlin
+A
+```
+
+Let's go through the responsibilities of the job hierarchies, one by one:
+* If the outer scope is cancelled, the inner one will also be in both cases:
+  `awaitSingleOrNull` cancels the code it's executing if the await is cancelled.
+  After all, `Mono` is a cold stream.
+* If nothing is cancelled and `A` completes successfully, the same value will be
+  returned in both cases.
+* If nothing is cancelled and `A` fails with an exception, that exception will
+  be rethrown from `awaitSingleOrNull`, so again, the same result.
+
+... unless `A` changes its behavior depending on the `Job` or affects the
+behavior of its `Job`.
