@@ -2445,3 +2445,20 @@ Let's go through the responsibilities of the job hierarchies, one by one:
 
 ... unless `A` changes its behavior depending on the `Job` or affects the
 behavior of its `Job`.
+
+
+Back to reading
+<https://dev.to/zachklipp/introduction-to-the-compose-snapshot-system-19cn>
+It seems this could be done easily in Haskell. I wonder if it was already done.
+This would look really nice in a monadic interface, except for the `remember`
+function, which is too magical for my taste. I don't understand its behavior
+fully anyway: what will happen if you call a function that calls `remember`
+with different parameters? What if it's a method in a class from which you
+inherit, will calling the function remember separate results then?
+
+
+2023-02-06
+----------
+
+A paper review arrived. Not sure if I'm allowed to disclose which paper and
+which conference it is at this point, sorry. Preparing a rebuttal.
