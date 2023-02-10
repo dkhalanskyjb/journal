@@ -2472,3 +2472,18 @@ Looking forward to the weekend.
 Had the main coroutine guy explain obvious things to me:
 <https://github.com/Kotlin/kotlinx.coroutines/pull/3595/files#r1102542930>
 At this point, I'm more of a plant than a man.
+
+Also, my ear aches terribly. A "ligament" they call it in English? in my mouth
+is really stressed, so the whole right half of my face is in pain, especially
+the ear.
+
+Walking through the PRs in coroutines, but I also must fix my computer.
+I found the root cause of all my issues: the new Ubuntu version uses Wayland by
+default, but on my work computer, I'm still rocking i3. Quite expected that my
+programs would crash on startup. It's a shame that I must migrate, because by
+the nature of my work, I have to use IntelliJ IDEA, which doesn't work well on
+Wayland: the text is all blurry. Trying to migrate using `apt`, I still
+encounter issues, so I might as well try to keep the course of using the nix
+package manager, slowly migrating all the software I use to it, leaving behind
+only the software that has to run as a system service.
+
