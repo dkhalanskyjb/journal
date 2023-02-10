@@ -2462,3 +2462,13 @@ inherit, will calling the function remember separate results then?
 
 A paper review arrived. Not sure if I'm allowed to disclose which paper and
 which conference it is at this point, sorry. Preparing a rebuttal.
+
+
+2023-02-10
+----------
+
+Done. I think I've exhausted my mental capacity for the week.
+Looking forward to the weekend.
+Had the main coroutine guy explain obvious things to me:
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3595/files#r1102542930>
+At this point, I'm more of a plant than a man.
