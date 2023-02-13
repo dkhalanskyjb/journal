@@ -2487,3 +2487,24 @@ encounter issues, so I might as well try to keep the course of using the nix
 package manager, slowly migrating all the software I use to it, leaving behind
 only the software that has to run as a system service.
 
+
+2023-02-13
+----------
+
+Fixing <https://github.com/Kotlin/kotlinx.coroutines/pull/3603>.
+I agree with Vsevolod's suggestion to extract the non-deprecated code at this
+point. I had this idea myself, but thought that this PR was already too large in
+scope. However, now that I think about it, there's another consideration:
+we *do* want to extract the correct implementation at the time when we stabilize
+it: when we do end up extracting it, surely there will be some tough decision
+when we inline everything in the end, like "do we really want to check this
+here? do we want to throw that there?"
+
+So, I rolled up my figurative sleeves and started separating the legacy code
+from non-legacy one.
+
+The result is some very clean logic, much simpler than not only the combined
+legacy + current implementation, but also than just the legacy implementation.
+Always a good sign!
+
+
