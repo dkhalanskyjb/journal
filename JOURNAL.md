@@ -2551,3 +2551,18 @@ doesn't work, but I don't understand why.
 Ok, after following <https://github.com/mawww/kakoune-lsp#troubleshooting>, I
 managed to arrive at a configuration that works at least better than IDEA.
 I can now go to definition!
+
+Wow, no, I was wrong. It seems this can't find *the standard library*.
+```
+kotlin language server error: 'Internal error.'
+```
+
+Trying to query information about something like "`toList`" leads to this
+response:
+```
+Symbol is declared in unnamed module which is not read by current module
+```
+
+Well, to be fair, while it was worth a try, I don't know why I expected that
+a third-party language server that interacts with a compiler that does not
+provide a stable API would work better than a first-party tool.
