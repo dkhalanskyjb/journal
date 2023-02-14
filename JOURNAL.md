@@ -2508,3 +2508,28 @@ legacy + current implementation, but also than just the legacy implementation.
 Always a good sign!
 
 
+2023-02-14
+----------
+
+External factors suggest that if, in two weeks, a draft of date-time formatting
+materializes, some parties would be satisfied. In other words, there's a
+deadline now.
+
+The deadline seems really easily achievable. I already have the generic parsing
+and formatting capabilities and partial support of format strings. I only need
+to finalize the format strings and add a builder interface, and this can be
+an acceptable draft already. Then I'll have to make sure the code works and to
+provide some conversion functions from other libraries' format strings.
+
+Plans as I see them so far:
+* Tuesday, Wednesday: add the proper builder interface.
+* Thursday: add support for format strings in our format.
+* Friday: add end-to-end tests. At this point, we can consider this a proper
+  draft.
+* Monday: parse `strftime` and Moment.js format strings.
+* Tuesday: parse Unicode format strings (Java, Swift).
+* Wednesday: document everything thoroughly.
+* Thursday: publish the draft and simultaneously start working on the initial
+  implementation of localized parsing and formatting.
+
+
