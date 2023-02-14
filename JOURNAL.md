@@ -2543,3 +2543,11 @@ I guess I'll have to implement everything the non-Kotlin way, in plain text
 editors. At least they're an order of magnitude more performant than IDEA, and
 when IDEA is broken, there are literally no downsides.
 
+Also, it's a good opportunity to check out the Kotlin language server.
+Unfortunately, in the Helix editor, it simply silently doesn't work, despite
+`hx --health kotlin` saying that it did found the language server. Kakoune also
+doesn't work, but I don't understand why.
+
+Ok, after following <https://github.com/mawww/kakoune-lsp#troubleshooting>, I
+managed to arrive at a configuration that works at least better than IDEA.
+I can now go to definition!
