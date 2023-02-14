@@ -2532,4 +2532,14 @@ Plans as I see them so far:
 * Thursday: publish the draft and simultaneously start working on the initial
   implementation of localized parsing and formatting.
 
+There's a proverb in Russian: "Tell the God your plans if you want to lighten
+His mood". The meaning is that the God knows better than anyone that your plans
+will differ wildly from what's actually going to happen. This is exactly what's
+happened to me this time: of course, the IDE stopped working with the datetime
+project for me. Even after I invalidated all the and updated all plugins,
+navigation in the project still doesn't work. Looks like no declarations from
+common code is resolved. The project builds fine though, so it's not me.
+I guess I'll have to implement everything the non-Kotlin way, in plain text
+editors. At least they're an order of magnitude more performant than IDEA, and
+when IDEA is broken, there are literally no downsides.
 
