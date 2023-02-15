@@ -2566,3 +2566,97 @@ Symbol is declared in unnamed module which is not read by current module
 Well, to be fair, while it was worth a try, I don't know why I expected that
 a third-party language server that interacts with a compiler that does not
 provide a stable API would work better than a first-party tool.
+
+
+2023-02-15
+----------
+
+Removing the `.idea` directory from the project resolved the issue.
+
+Spent some time trying to battle variance. In essence, here's the problem I
+was trying to solve and its solution, very simplified:
+
+```kotlin
+/**
+ * A parsing/formatting operation on `T`.
+ */
+private interface Operation<in T>
+
+/**
+ * A format, consisting of a series of operations.
+ */
+private class Format<in T>(private val list: List<Operation<T>>)
+
+private class FormatBuilder<T>(
+    private val list: MutableList<Operation<T>> = mutableListOf()
+) {
+    fun append(element: Operation<T>) = list.add(element)
+
+    fun build(): Format<T> = Format(list)
+
+    fun <E : T> upcast(): FormatBuilder<E> = FormatBuilder(list.toMutableList())
+}
+```
+
+The problem: I want the format-building operations to return the format that
+works with as many `T` as possible automatically. For example,
+if I'm building a `Format<LocalDateTime>` but only date-based fields are used,
+`Format<LocalDate>` should be returned instead. To this end, I start out with
+`FormatBuilder<Nothing>`, then, each `append` operation checks whether the
+new operation still makes sense in that builder, and if not, promotes the
+builder to a more all-encompassing one.
+
+For example, after calling `appendYear()` on `FormatBuilder<Nothing>`,
+we get `FormatBuilder<LocalDate>`, and after also calling `appendMinute()`, we
+get `FormatBuilder<LocalDateTime>`, as this is the smallest available structure
+that contains both fields.
+
+Now, my issue was that I tried to avoid an explicit `upcast` step.
+How do I set the variance everywhere in a way that `FormatBuilder<LocalDate>` is
+also automatically `FormatBuilder<LocalDateTime>`? The answer is, I don't.
+The classic trick that shows variance issues is at it again, though it slipped
+my mind because this time, the trick would be really convoluted:
+
+```kotlin
+val builder: FormatBuilder<LocalDate>
+val builder2: FormatBuilder<LocalDateTime> = builder
+val builder3: FormatBuilder<ZonedDateTime> = builder
+builder3.appendTimeZone()
+```
+
+Now `builder2` would contain a non-`LocalDateTime` field.
+
+This would be a good place for Rust-like linearity: we could make an
+`upcast` operation totally free if it consumed `FormatBuilder` completely, and
+the code would be much more obvious. However, I spared no expenses on format
+construction: it is an expensive operation, please do this as rarely as
+possible.
+
+**Why do this at all?** Simple: because it's easy to do and, depending on our
+choice of the user-facing API, this could be a bit useful.
+
+Consider `DateTimeFormat.fromStrftime("%Y-%m-%d")`. What should it return?
+It could be an equivalent of `Format<AllEncompassingThingWithDateTimeAndZone>`,
+but actually, we just want `Format<LocalDate>`.
+
+This won't work if we decide to make an API like `DateTimeFormat<LocalDate>`,
+since then, there would be no way to programmatically check whether this is
+`DateTimeFormat<LocalDate>` or `DateTimeFormat<LocalDateTime>` due to type
+erasure, but if we introduce separate types like `DateFormat`, `TimeFormat`,
+etc., then this could be done.
+
+**Wait, doesn't type erasure break the whole idea?** Yeah, it's true, we can't
+pattern match types due to type erasure in the `appendYear` implementation as
+well, which is why I have to implement a mechanism that allows me to know the
+type information in both runtime and compile-time:
+```kotlin
+interface WithReifiedTypeArgument { val builder: FormatBuilder<*> }
+class Date(override val builder: FormatBuilder<DateFieldContainer>) : WithReifiedTypeArgument
+class Time(override val builder: FormatBuilder<TimeFieldContainer>) : WithReifiedTypeArgument
+class Top(override val builder: FormatBuilder<Nothing>) : WithReifiedTypeArgument
+class Bot(override val builder: FormatBuilder<Any>) : WithReifiedTypeArgument
+```
+
+It's a shame that I can't have `FormatBuilder` subclassing, or I'd be able to
+write neat things like `interface DateTime: Date, Time`.
+Maybe I should trick the compiler and have my subclassing.
