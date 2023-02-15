@@ -2660,3 +2660,39 @@ class Bot(override val builder: FormatBuilder<Any>) : WithReifiedTypeArgument
 It's a shame that I can't have `FormatBuilder` subclassing, or I'd be able to
 write neat things like `interface DateTime: Date, Time`.
 Maybe I should trick the compiler and have my subclassing.
+
+
+Or maybe not! Here's a thought: make the code simply reflect the conceptual
+model. Rarely is this a bad idea. And how *conceptually* do we represent
+formats with mixed type containers? Here's a hint:
+`ld<yyyy'-'mm'-'dd>'T'lt<hh':'mm':'ss>`. We *split the format* into groups of
+different types!
+
+Here, we could do exactly the same. Instead of promoting a formatter into a
+bigger thing on each `append`, we could delay this decision until the final
+`build` call, and until then, just keep a list like
+`[DateFormat(...), TimeFormat(...), DateFormat(...)]`.
+This way, we won't be constantly copying lists and performing complex
+subclassing checks. Now, `appendYear` will only need to check "is the last group
+`DateFormat`? If so, append to that, and otherwise, create a new one".
+This also allows for better separation of responsibilities: this way, we won't
+have to make the date-only format aware of how it should upgrade itself to the
+encompassing formats.
+
+Really a shame we can't write this in Kotlin:
+```kotlin
+private sealed interface Marker<T>
+
+private object DateMarker: Marker<List<DateFieldContainer>>
+
+private class MarkedValue<T>(val marker: Marker<T>, val value: T)
+
+private fun t(value: MarkedValue<*>) {
+    when (value.marker) {
+        is DateMarker -> {
+            value.value as List<DateFieldContainer> // "unchecked cast"
+        }
+    }
+}
+```
+
