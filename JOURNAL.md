@@ -2696,3 +2696,49 @@ private fun t(value: MarkedValue<*>) {
 }
 ```
 
+2023-02-15
+----------
+
+After some thought, I see now that the idea of `DateTimeFormat` subclassing is
+doomed from the start.
+
+Consider the API of the parser part of `DateTimeFormat`:
+```kotlin
+interface DateTimeParser {
+  fun parse(string: String): AllEncompassingThingWithDateTimeAndZone
+}
+
+interface DateParser {
+  fun parse(string: String): LocalDate
+}
+```
+
+There's no way they could be related via subclassing: a `LocalDate` is certainly
+not an `AllEncompassingThingWithDateTimeAndZone`, and it's impossible to
+inherit `AllEncompassingThingWithDateTimeAndZone` from both `LocalDate` and
+`LocalTime`.
+
+We *could* do this all via interfaces, like
+```kotlin
+interface DateTimeParser: DateParser {
+  fun parse(string: String): SomethingWithDateTimeAndZoneFields
+}
+
+interface DateParser {
+  fun parse(string: String): SomethingWithDateFields
+}
+```
+
+But then, in order to get a `LocalDate` from `parse`, one would either have to
+do `as` casting (very cumbersome) or have something like `toLocalDate` in
+`SomethingWithDateFields`. But then, we wouldn't win anything with the
+subclassing: you can just create an `AllEncompassingThingWithDateTimeAndZone`
+and call `getLocalDate` on that.
+
+This all is even ignoring the issue that we may not want `Parser` to be a
+standalone thing (I sure don't, for example) and instead be part of a `Format`,
+with the `Formatter` part having a different variance.
+
+Well, not entirely true. They have the same variance, but that's a
+technicality.
+
