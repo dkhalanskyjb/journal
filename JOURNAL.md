@@ -2742,3 +2742,9 @@ with the `Formatter` part having a different variance.
 Well, not entirely true. They have the same variance, but that's a
 technicality.
 
+
+Important milestone: ISO-8601 `LocalDate` format is parsed and formatted with my
+thing successfully. So, the *basic* end-to-end functionality is there.
+Hopefully, I'll manage to repeat this success for `LocalTime`, `LocalDateTime`,
+and `UtcOffset` by Monday. Then, only `DateTimePeriod` will remain. Though that
+one really is a tough nut to crack.
