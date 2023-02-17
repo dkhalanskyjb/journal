@@ -2748,3 +2748,46 @@ thing successfully. So, the *basic* end-to-end functionality is there.
 Hopefully, I'll manage to repeat this success for `LocalTime`, `LocalDateTime`,
 and `UtcOffset` by Monday. Then, only `DateTimePeriod` will remain. Though that
 one really is a tough nut to crack.
+
+
+2023-02-17
+----------
+
+One more success: managed to implement `LocalTime` formatting and parsing via
+the new
+
+```kotlin
+appendHour(2)
+appendLiteral(':')
+appendMinute(2)
+appendOptional {
+    appendLiteral(':')
+    appendSecond(2)
+    appendOptional {
+        appendLiteral('.')
+        appendSecondFraction(1)
+    }
+}
+```
+
+This ensures that formatting and parsing optional sections at least somewhat
+works.
+
+Next up, complex data structures, like `LocalDateTime`.
+
+
+Turns out, the idea with the complex parsers behaving in terms of
+`[DateFormat(...), TimeFormat(...), DateFormat(...)]` is also not as robust as
+I thought. Consider the format `ld<yyyy-mm-dd>(|lt<hh:mm:ss>)`, for example.
+It can not be used for formatting, since hours don't have a default value, but
+this *can* be used to parse something that's either a `LocalDate` or
+`LocalDateTime`. In this particular case, `lt<*>` and `(*|*)` commute, but
+they are not guaranteed to: `(ld<yyyy-mm-dd>|lt<hh:mm:ss>)` just permits an
+arbitrary structure on the input. So, while we could patch up this particular
+use case, I think it would be conceptually clearer to just go back to the
+original downcasting idea. Oh well.
+
+
+Success! `LocalDateTime` parsed and printed, with its format defined via the
+ones for `LocalDate` and `LocalTime`, though it could have just as easily been
+defined on its own.
