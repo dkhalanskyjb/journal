@@ -2791,3 +2791,85 @@ original downcasting idea. Oh well.
 Success! `LocalDateTime` parsed and printed, with its format defined via the
 ones for `LocalDate` and `LocalTime`, though it could have just as easily been
 defined on its own.
+
+
+2023-02-20
+----------
+
+The next milestone is to be able to write a `DateTimePeriod` parser/formatter.
+There's a problem though: the existence of the global sign, like in
+`-P1DT-1H`, meaning minus (one day minus one hour). I've already discussed
+this on 2023-01-22. I've had some new thoughts since then as to how specifically
+to implement this. I'm not that worried about the deadline now, as I know I can
+quickly pretty up what I have now and already call that a prototype.
+Maybe I should instead focus on format strings for completeness then, to have a
+more full and impressive prototype.
+
+However, this must wait until I've dealt with the showstoppers in coroutines:
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3603>.
+
+It's crazy hot in here, even with the open windows! "February", yeah, right.
+
+So, some thoughts about the signs.
+We have the following strategies for sign placement that we must support:
+* Always output the sign. For example, `UtcOffset`.
+* Only output the sign when it's `-`. For example, `DateTimePeriod` components.
+* The ISO-8601 year mess of "if the number is longer than the proposed padding,
+  write `+`".
+
+The ISO-8601 year strategy is only needed for years
+(<https://grep.app/search?q=appendValue.%2AEXCEEDS_PAD&regexp=true>), so we
+won't provide means of attaching such behavior to arbitrary fields.
+This leaves us with two other strategies. The "always output sign" one is
+commonly represented as the `+` modifier, because the strategy of only
+outputting `-` is usually the default. However, not many formatting systems
+permit formatting `-10, -15` as `-(10, 15)`, and we have to support this.
+Noda Time, who do provide the "shared sign" functionality
+(<https://nodatime.org/2.4.x/userguide/duration-patterns>), use the `-`
+modifier for this behavior.
+
+The plan:
+* Due to the special requirements of the ISO-8601 year, by default, use the
+  `EXCEEDS_PAD` strategy for it. In the realistic use cases of four-digit
+  years, this will be exactly the same strategy as the `-` one.
+* For every other field, use the `-` strategy by default.
+* If some shared sign was output somewhere up the stack, don't output it again
+  for the field itself. This means not outputting `-` for negative fields if
+  `-` was already output, but also not outputting `+` for years when
+  `EXCEEDS_PAD` rule is triggered if a shared `+` was already output.
+* If the entity to the right of `+` and `-` doesn't have a sign, fail.
+* When shared signs are nested, `+` should still output `+` when appropriate.
+
+Why is all of this so? Let's consider the use cases.
+
+* Offset:
+  - `+HH:mm` reads as "output the sign, then the hours, then the minutes"
+  - `HH:mm`, due to established conventions behind signs, reads as
+    "output the hours, only outputting the sign if it's `-`, then the minutes".
+* Dates:
+  - `+yyyy'-'mm'-'dd` reads as "output the years with the leading sign, then
+    the rest of the date".
+  - `yyyy'-'mm'-'dd` reads as "output the years with whatever signs, it doesn't
+    matter, we only have dates in the 2006-2023 range".
+  - `dd-mm-yyyy` reads like `dd'-'mm'-'yyyy`, but with a syntactic mistake.
+* Periods:
+  - `-('('yy' years' mm' months)')` reads as something uncommon, because it is.
+    After learning that an explicit `-` is "output `-` if negative" and only
+    makes sense if `()` follow it, it reads fine.
+  - `-('('+yy' years'+mm' months)')` reads like "I want to output a shared sign
+    if it's `-`, but I also always want to output the sign of the thing here".
+
+In order to support conditionally outputting `()`, we can also consider the
+introduced sign to be a separate field with the default value `+`, so that code
+like `(yy mm|-('['yy mm']'))` works as expected.
+
+Looks like the proposed plan always leads to the most intuitive reading.
+
+We could emphasize the point that `-` only makes sense if `()` follows it and
+forbid anything else, but I think this would be a mistake. The reason is
+`yyyy-(mm|m)-(dd|d)`.
+
+ A big (and completely unimportant!) question is this format:
+`-(yy -(mm dd))`. With `yy = -15`, `mm = -23`, `dd = -56`, what should be
+output, `-15 23 56` or `-15 -23 56`? Ah, nevermind, obviously the first one is
+correct. How nice to have distributivity here!
