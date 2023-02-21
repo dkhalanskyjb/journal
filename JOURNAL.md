@@ -2873,3 +2873,56 @@ forbid anything else, but I think this would be a mistake. The reason is
 `-(yy -(mm dd))`. With `yy = -15`, `mm = -23`, `dd = -56`, what should be
 output, `-15 23 56` or `-15 -23 56`? Ah, nevermind, obviously the first one is
 correct. How nice to have distributivity here!
+
+2023-02-21
+----------
+
+Yeah, I definitely should focus on format strings. It's a good thing that I
+thought about all the details for the plus/minus signs, as this will directly
+affect the parsing of format strings, but I'm sure the signs are not a priority
+in the way the general API shape is.
+
+Working a bit on <https://github.com/Kotlin/kotlinx.coroutines/pull/3603> and
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3632>.
+
+
+A bit tired from work (have almost finished writing the format string parser),
+let's try to excercise Kotlin some more. Are there existential types in Kotlin?
+There are in the weak sense that, for each `T`, `exists E, E : T` is trivially
+available: this is just inheritance. Is there, for each `A<X>` the ability to
+define the type `exists E, A<E>`? Well, that's `A<*>`, simple. But!
+Is there, for each `A<X>` the ability to define `exists E, A<X> where f(E)`?
+
+A specific use case (pseudocode):
+```kotlin
+interface Builder<T> {
+  fun subBuilderByName(name: String): { Builder<E> where T : E }
+}
+```
+
+Well, on the surface level, it *is* possible:
+
+```kotlin
+internal sealed interface BuilderInheritedWrapper<T>
+internal class BuilderInherited<E, T>(val builder: Builder<E>) : BuilderInheritedWrapper<T> where T : E
+```
+
+However, clients of this can't be written, it seems.
+
+```kotlin
+internal fun <E, T> someFunction(builder: Builder<E>): FormatStructure<T> where T : E {
+    return builder.build()
+}
+
+internal fun client() {
+    val b1 = object : Builder<Number> {
+        // ...
+    }
+    val b: BuilderInheritedWrapper<Int> = BuilderInherited<Number, Int>(b1) as BuilderInheritedWrapper<Int>
+    val i: FormatStructure<Int> = when(b) {
+        is BuilderInherited<*, Int> -> someFunction(b.builder) // infers FormatStructure<Nothing>
+    }
+}
+```
+
+The constraints are clearly not propagated properly. Shame.
