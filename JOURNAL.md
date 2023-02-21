@@ -2926,3 +2926,6 @@ internal fun client() {
 ```
 
 The constraints are clearly not propagated properly. Shame.
+
+
+Success! Date, time, and date-time formats can be defined in format strings.
