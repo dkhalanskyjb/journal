@@ -2929,3 +2929,20 @@ The constraints are clearly not propagated properly. Shame.
 
 
 Success! Date, time, and date-time formats can be defined in format strings.
+
+
+2023-02-22
+----------
+
+I need to rethink the semantics of parsing in case when alternatives are used.
+Consider the case of searching for `lt<hh:mm(|:ss)>` in some text. `find` will
+return `13:45` if text like `13:45:31` is encountered, as this is the first
+option when parsing. Surely, regardless of what happens with regular expressions
+in general, searching for date-time things in text should be as greedy as
+possible, an so the right strategy is to parse using all branches, but return
+the first one among the longest ones.
+
+Likewise, `findAll` shouldn't return `[13:45, 13:45:31, 45:31]`, one one of
+these is correct. This can be achieved by only taking the longest parsed string
+from the given position, and also by skipping the parts of the input that were
+already recognized as something.
