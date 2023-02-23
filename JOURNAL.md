@@ -2946,3 +2946,51 @@ Likewise, `findAll` shouldn't return `[13:45, 13:45:31, 45:31]`, one one of
 these is correct. This can be achieved by only taking the longest parsed string
 from the given position, and also by skipping the parts of the input that were
 already recognized as something.
+
+
+Who knew I would be implementing stack machines just to support parsing signs
+properly.
+
+
+2023-02-23
+----------
+
+Successfully implemented formatting with signs, but parsing still requires work.
+The release of coroutines is a moving target, so work is constantly tickling
+there. Have a bunch more pull requests to review there.
+
+On Monday (or early Tuesday), I'll publish the draft of datetime formatting, and
+for that, a working implementation is neither sufficient nor needed. Instead,
+everyone will judge the external interfaces. So, I think I'll focus on them
+primarily and only deal with making parsing with signs work *after* the
+API is somewhat established.
+
+
+Here's a pretty damning evidence that I've started losing my sight of the target
+and began overengineering: <https://grep.app/search?q=SignStyle.ALWAYS>
+Surprise: *nobody* uses the "always output a sign" directive.
+Should have checked this before adding `+`. It all just went so smoothly: we
+certainly need a "shared minus", so why not have a "shared plus" as well? If we
+have a shared minus and a shared plus, why not make them applicable to
+individual directives as well? Etc.
+
+Let's reestablish everything from the ground up. *We need the shared `-`*.
+We don't need individual `-`, because it's the default. To negate this default,
+we could need an individual `+`, however, so far, there's no evidence that we
+ever would.
+
+This simplifies everything quite a bit. No more reasoning about what to do if
+there's a `+` output up the stack, and no more concerns about the behavior of
+the sign of years: screw years, they don't make sense as signed numbers anyway.
+ISO year 1 is the beginning of the AD era, and year 0 is the year 1 BC, and if
+we treat that literally as numbers, it becomes something like "ISO year `n` is
+`n` years later than one year before the start of the current era." Just rolls
+from the tongue, doesn't it?
+
+The need that people actually have is to *avoid* the `SignStyle.EXCEEDS_PAD`,
+to the point where people even discard the minus sign!
+<https://grep.app/search?q=appendValue%5C%28.%2A%5CbYEAR.%2ASignStyle.%5B%5EE%5D&regexp=true>
+
+So, here's the resolution for now: no `+` modifier, it's just never needed.
+
+That was a long rant for such small a resolution, but oh well.
