@@ -3021,3 +3021,43 @@ course, which is an entirely different beast.
 To return to the question of `+HH:mm`, I'm certain that all signed numbers
 should just behave the same, and a special `+` sign shouldn't be special.
 It's really not that expensive to support `+` everywhere.
+
+Funny occurrence: I wrote an API like
+```kotlin
+public fun LocalDate.Companion.parse(formatString: String, input: String): LocalDate
+```
+
+When I tried to use it elsewhere, Copilot suggested:
+```kotlin
+parse(input, isoDateFormat)
+```
+Clearly it's mistaken!
+However, after thinking about it for a bit, I changed the *API*.
+Initially, I followed the school of Haskell, with the more unchanged parameters
+being the first ones. This way, you can comfortably curry:
+```haskell
+parseDate :: Format -> String -> Date
+
+isoParseDate :: String -> Date
+isoParseDate = parseDate isoDateFormat
+```
+
+Very handy, but Kotlin just doesn't have this. So, other considerations come
+into play. For example, the consistency among overloads.
+
+```kotlin
+parse("1")
+parse("2", "3")
+```
+The first function, parsing with the default format, looks very much like the
+second function. To the point where we could write the first one like
+
+```kotlin
+fun parse(input: String) = parse(format = isoDateFormat, input)
+```
+
+But the defaultable arguments usually go to the end. So, it makes sense that the
+first argument is the input string: this way, it stays the same between
+overloads.
+
+Also, Java does it this way.
