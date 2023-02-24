@@ -2994,3 +2994,30 @@ to the point where people even discard the minus sign!
 So, here's the resolution for now: no `+` modifier, it's just never needed.
 
 That was a long rant for such small a resolution, but oh well.
+
+
+2023-02-24
+----------
+
+Wow. Some days, the best you can do for work is to just go home. Yesterday was,
+it seems, one of such days for me. Reading what I wrote yesterday, it's really
+ridiculous.
+
+"We don't need a `+`" is a faulty premise, because we obviously do need it: the
+UTC offset format `+HH:mm` wouldn't work otherwise. Well, it obviously could
+work if we special-cased `HH`, but as a programmer, I **hate** with deep passion
+such special-casing in the API. You can't really learn and understand the API,
+you have to always research every single tiny thing. This is really my main
+gripe with Kotlin and C++, as well as Python's and C's standard libraries: you
+can't build an intuition, the ground is always shifting under your legs.
+
+Do I entertain the thought that someone would learn the formatting API I'm
+working on? Well, I don't think anyone would become an expert in it, but I
+absolutely think that the goal of making it possible to just jump into
+documentation for a quick refresher and then writing whatever format one desires
+is possible... With the big caveat of *localized* parsing and formatting, of
+course, which is an entirely different beast.
+
+To return to the question of `+HH:mm`, I'm certain that all signed numbers
+should just behave the same, and a special `+` sign shouldn't be special.
+It's really not that expensive to support `+` everywhere.
