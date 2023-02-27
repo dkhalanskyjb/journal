@@ -3061,3 +3061,48 @@ first argument is the input string: this way, it stays the same between
 overloads.
 
 Also, Java does it this way.
+
+
+2023-02-26
+----------
+
+Interesting find: turns out, testing a system just using itself is error-prone.
+When we transferred parsing `Instant` to use `OffsetDateTime` to be able to
+parse the offsets other than `Z`, we accidentally also allowed parsing strings
+that don't have the minute component. How did this slip in? Well, if we simplify
+the issue, the code that checks the correctness of parsing does this (pseudocode)
+```kotlin
+for (offset in offsets) {
+  for (instant in instants) {
+    // here, Instant.parse(s) = OffsetDateTime.parse(s).toInstant()
+    assertEquals(instant, Instant.parse(OffsetDateTime(instant, offset).toString()))
+  }
+}
+```
+
+So, effectively, the code is checking that `OffsetDateTime` parses what it outputs.
+Not a very useful property unless we want to test java.time!
+
+
+2023-02-27
+----------
+
+Finally published a draft of the datetime formatting implementation:
+<https://github.com/Kotlin/kotlinx-datetime/pull/251>
+Should be smooth sailing from there.
+
+However, there are many things to improve. I have plenty of time before we
+arrange design meetings, and so, many opportunities to iron out the issues.
+
+The most glaring ones for now are those:
+* Actually, the internal `Builder` interface is not that useful.
+  I could replace it with a mapping of subbuilder names to their collections
+  of directives and have an even better, more declarative implementation of
+  the same, opening up the possibility of more informative error messages in
+  case of unknown directives/subbuilders.
+* The latest fixes in the parsing facilities led me to a nice refactor that
+  suggests that formats are composable. If it turns out to be the case, it's
+  one more nice algebraic property, and those are usually very fruitful.
+  For example, we could have an API like
+  "`LocalDateTimeBuilder.appendDateFormat`" that would allow one to use the
+  preset formats we're going to provide.
