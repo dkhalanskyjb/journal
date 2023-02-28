@@ -3106,3 +3106,13 @@ The most glaring ones for now are those:
   For example, we could have an API like
   "`LocalDateTimeBuilder.appendDateFormat`" that would allow one to use the
   preset formats we're going to provide.
+
+Taking a breather from the datetime, I noticed that the
+`kotlinx-coroutines-test`'s `README.md` needs an update to reflect the
+new stuff: <https://github.com/Kotlin/kotlinx.coroutines/pull/3645>.
+
+
+2023-02-28
+----------
+
+Writing a public document about localized date-time formatting. Stay tuned.
