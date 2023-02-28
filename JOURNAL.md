@@ -3116,3 +3116,8 @@ new stuff: <https://github.com/Kotlin/kotlinx.coroutines/pull/3645>.
 ----------
 
 Writing a public document about localized date-time formatting. Stay tuned.
+Done: <https://github.com/Kotlin/kotlinx-datetime/discussions/253>
+
+Took a bit longer than I expected, because Swift managed to provide a nice API
+for localized formatting while I wasn't looking, and it took some time to get
+up to speed.
