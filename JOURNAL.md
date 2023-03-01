@@ -3121,3 +3121,126 @@ Done: <https://github.com/Kotlin/kotlinx-datetime/discussions/253>
 Took a bit longer than I expected, because Swift managed to provide a nice API
 for localized formatting while I wasn't looking, and it took some time to get
 up to speed.
+
+
+2023-03-01
+----------
+
+A nice first day of spring.
+
+Reading a sad tale:
+<https://betterprogramming.pub/the-silent-killer-thats-crashing-your-coroutines-9171d1e8f79b>
+Really compelling argumentation. I'm not under obligation to write anything
+articulate here, so I'm going to ramble. The purpose is not to tell something
+but to understand what I think about all this.
+
+So, the Java world is built on exceptions for exceptional conditions. There is
+the normal code that runs without any worries or concerns about an error
+happening in one of its operations, as the errors simply propagate upwards.
+
+There are several kinds of exceptions in practice:
+* Runtime issues: out-of-memory, stack overflow, etc. Sometimes these are
+  programmers' mistakes, and sometimes, they are jus the sad reality.
+  All bets are off when such exceptions happen: anything can throw them, each
+  line of code is a potential culprit.
+* Programmer mistakes: `NullPointerException`. These should not happen, so if
+  they do, it's best to catch them in a way that makes it possible to inform the
+  programmer about their mistake. A top-level handler of sorts is nice for this.
+* Expected exceptions: for example, when parsing some user-supplied string
+  fails. It's not the happy path, but it *is* expected. These should be caught
+  and processed appropriately.
+* Abusing the concept. All the exceptions above represent straying from the
+  happy path, but the exceptions are also used for their magical control flow
+  manipulation properties. Jumping up the stack *is* a powerful ability.
+  In theory, when you have exceptions, you don't need `continue`, or `break`,
+  or `return`: all of this can be replaced with `try`-`catch`.
+  A language with just a `while(true)`, `if`, `try`, and `throw` is already
+  not any less powerful than Python.
+
+Interruption exceptions and coroutines' cancellation exceptions are really
+abusing the concept: why would one call those "exceptions" if they are very
+regularly the *expected* part of execution? This is just using the mechanism
+built and refined for one thing and making it mean something else completely,
+just because the behavior is the same on the surface level.
+
+Runtime exceptions can not be sensibly handled. Only if every line of code is
+written with the assumption that it can throw can we reason about which
+invariants would be violated by a stack overflow in this or that function call.
+We can't even write defensively against this: no matter how well you keep your
+call chain flat, someone could just run your top-level function in some
+monstrous multi-layered framework. Let's see what Java thinks about it:
+<https://docs.oracle.com/javase/7/docs/api/java/lang/Error.html>.
+And sure enough,
+> these errors are abnormal conditions that should never occur
+
+Programmer mistakes can only be handled via a top-level handler. Should one
+ever try to wrap a block of code in `try`-`catch` *just in case* there's an
+error in that code? Well, in theory, this could be sometimes useful, but... are
+you not calling that code with some specific purpose? If that purpose was not
+fulfilled, how can you continue? By instead calling a safer fallback, one that
+is more robust but potentially deficient in some other way that prevents it
+from just making it the default? I guess that's a possibility, but I've never
+seen this done. Maybe in some more enterprise environments? No, this still does
+not make sense: if you admit that your code may be wrong, you can't assume that
+it will always throw an exception if something's wrong. Or can you? If you
+program really defensively, like below, maybe you can:
+```kotlin
+doOperation1()
+check(operation1Done()) { "fail1" }
+doOperation2()
+check(operation2Done()) { "fail2" }
+```
+Still, not something I've seen.
+
+Expected exceptions are a tricky beast. Which exceptions you expect depends on
+your problem area. If a function throws `E1`, `E2`, and `E3` depending on the
+conditions, and you expect `E1` and `E2` and are sure that `E3` never happens,
+then, when `E3` is thrown, it's a programmer mistake. However, we're not
+discussing language syntax here, it's just me rambling about the *semantics*,
+and *semantically*, this function simply returns `Value | E1 | E2 | E3`, where
+`|` is a disjoint union. Even `IllegalArgumentException` is just part of the
+function's behavior and its *reaction to the inputs*. It would be irritating to
+actually write the code where all non-happy-path cases were returned in a
+reified manner: not all assumptions are encoded in types, so you may get
+nonsense even if `Value` was returned, and painstakingly enumerating everything
+that's can be returned from your functions would be exhausting. However, we
+should recognize the use case where exceptions are just the expected result.
+Let's split this problem into two: let's imagine that every non-critical
+exception is always explicitly returned and programmers must always check the
+result and explicitly decide what to promote to a critical problem (something
+that's not expected and is a programmer mistake) and what to treat in some
+manner.
+
+Someone could notice that we're getting close to Rust here.
+
+A `CancellationException` being thrown means that the coroutine was cancelled
+and needs to stop doing what it's doing. This is not an exception semantically,
+it's a control flow token that happens to reuse the exception handling
+mechanism to make use of the `finally` blocks and such. If coroutine
+cancellation didn't rely on exceptions, what would it do? My guess is, it would
+take the position in code where the coroutine was suspended, and then go through
+the `finally` blocks. Would we want to ever let people explicitly handle
+*cancellation*? I don't really see a compelling reason to. If your code stopped
+executing for some reason and decided to unwind the stack and prematurely
+terminate, do you care whether it was an out-of-memory error, programmer
+mistake, or cancellation? Can you meaningfully react to the difference between
+these?
+
+Ideally, therefore, it would be impossible to even programmatically react to a
+`CancellationException`. It's not an interruption exception: in Java, when you
+interrupt a thread, it may decide to keep chugging along, even going into
+interruptible methods, by clearing the interrupt flag. With Kotlin coroutines,
+this is impossible: to execute some code while disregarding cancellation, you
+must either have launched it in `withContext(NonCancellable)` (you can't do
+that *after* the cancellation) or to just spawn a new coroutine that finishes
+the job for you (the first question is, why do that, and the second one is,
+why would it be handled differently from a programmer's mistake or an OOM).
+
+So, `CancellationException` shouldn't even ever surface.
+
+With all these considerations, what should `Deferred.await` do when if the
+computation was cancelled? With all the considerations above, I feel that
+it should *not* throw an instance of `CancellationException`: it *is* not a
+signal for the caller to cancel.
+
+So, in short: I think I agree.
