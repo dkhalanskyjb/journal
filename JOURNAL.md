@@ -3244,3 +3244,45 @@ it should *not* throw an instance of `CancellationException`: it *is* not a
 signal for the caller to cancel.
 
 So, in short: I think I agree.
+
+2023-03-02
+----------
+
+I wonder in which cases deprecation warnings should not be shown.
+For example, consider the following code:
+
+```kotlin
+@Deprecated("Don't use this!")
+class X
+
+fun f(x: X) = 3
+```
+
+Compiling this code leads to a warning: the function is using
+the deprecated `X`, but it should not.
+
+Now, a concern: the more warnings there are, the worse
+is the incentive to disregard them until it's too late and they become errors,
+so if there are too many warnings, we risk making deprecated code
+indistinguishable from normal one.
+
+Is the warning for `f` actually doing anything useful? In order to use `f`,
+one first has to obtain an instance of `X`, and *that* place is already going
+to give a warning. When all such places are eliminated, `f` will warn about
+existing despite being unused.
+
+This can be generalized to any use of deprecated things in `in`-positions:
+`f(x: X)`, `f(x: () -> X)`, `Consumer<X>`, etc: they are benign, as to use them
+in a way that accesses `X`-specific functionality, you have to already have an
+instance.
+
+Now, here's a concern that probably invalidates my reasoning: deprecating an
+interface/superclass while keeping the implementors/inheritors. If everywhere in
+the `in` position you have the deprecated `X`, but everywhere in `out` you have
+`Y : X`, you will not notice any issues until `Y` stops being inherited from
+`X` (which breaks backward compatibility) or `X` is hidden (which causes a
+compilation error). This kind of negates the benefits of graceful migration via
+`Deprecated`.
+
+Yeah, on second thought, the idea of not treating `in`-uses as issues seems
+flawed in the presence of subclassing.
