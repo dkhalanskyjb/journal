@@ -3286,3 +3286,15 @@ compilation error). This kind of negates the benefits of graceful migration via
 
 Yeah, on second thought, the idea of not treating `in`-uses as issues seems
 flawed in the presence of subclassing.
+
+
+2023-03-03
+----------
+
+There are already some discussions under
+<https://github.com/Kotlin/kotlinx-datetime/discussions/253>, in which I
+participate.
+
+Today, after a very long week, I'm going to review all the pull requests in
+coroutines that I should. I've lost count of how many times I've had to write
+this here already.
