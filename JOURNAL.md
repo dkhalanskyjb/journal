@@ -3298,3 +3298,15 @@ participate.
 Today, after a very long week, I'm going to review all the pull requests in
 coroutines that I should. I've lost count of how many times I've had to write
 this here already.
+
+
+2023-03-04
+----------
+
+Quite a productive morning: fixed a bug in a test
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3659>,
+reviewed the changelog of the upcoming beta release of coroutines,
+discussed the localized date-time formatting a bit.
+
+Now I'm reading <https://abseil.io/docs/cpp/atomic_danger>, and then, I'll need
+to work for a bit on the paper we submitted. Everything goes well for now!
