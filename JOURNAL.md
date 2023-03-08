@@ -3316,3 +3316,15 @@ to work for a bit on the paper we submitted. Everything goes well for now!
 ----------
 
 Still working on the paper.
+
+
+2023-03-06
+----------
+
+Let's start small today: <https://github.com/Kotlin/kotlinx-datetime/pull/256>
+
+Or think bigger: let's also *keep it* small.
+
+For example, now I'm going to configure `kotlinx-datetime` so that it supports
+the Kotlin compiler continuous integration.
+
