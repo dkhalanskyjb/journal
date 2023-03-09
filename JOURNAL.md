@@ -3300,7 +3300,7 @@ coroutines that I should. I've lost count of how many times I've had to write
 this here already.
 
 
-2023-03-04
+2023-03-06
 ----------
 
 Quite a productive morning: fixed a bug in a test
@@ -3312,13 +3312,13 @@ Now I'm reading <https://abseil.io/docs/cpp/atomic_danger>, and then, I'll need
 to work for a bit on the paper we submitted. Everything goes well for now!
 
 
-2023-03-05
+2023-03-07
 ----------
 
 Still working on the paper.
 
 
-2023-03-06
+2023-03-08
 ----------
 
 Let's start small today: <https://github.com/Kotlin/kotlinx-datetime/pull/256>
@@ -3328,3 +3328,44 @@ Or think bigger: let's also *keep it* small.
 For example, now I'm going to configure `kotlinx-datetime` so that it supports
 the Kotlin compiler continuous integration.
 
+
+2023-03-09
+----------
+
+Noticed that the dates for the last few days were all wrong. Fixed.
+
+When I wanted to keep it small yesterday, I didn't expect configuring
+`kotlinx-datetime` for the compiler continuous integration to be so demanding.
+
+Groovy is very dynamic. You can add properties at runtime and then try to query
+them. When it works, it works, and when it doesn't work, it compiles.
+The existing scripts for continuous integration
+(like <https://github.com/Kotlin/kotlinx.coroutines/blob/4116d4a178f32b1241db8247a38cd2823fb8b03e/build.gradle#L17-L43>)
+use Groovy.
+
+`kotlinx-datetime` uses `build.gradle.kts`, which is a different beast.
+Naively translating Groovy code into `build.gradle.kts` simply does not compile:
+we can't query a property that's not there statically. So, instead of a simple
+manual translation, this became a serious task of trying to understand what's
+going on in the continuous integration scripts.
+
+For now, it seems, the following things happen, though I may be severely
+mistaken:
+* The build scripts in `buildSrc` check if this is a continuous integration
+  build. If so, the plugins *for* the scripts in `buildSrc` use the CI version
+  of the Kotlin compiler. Why? The only plugin we use is `kotlin-dsl`.
+  Do we actually use *our own* `kotlin-dsl`? I don't think we do: there's not
+  even a version of it specified, so there's no way to discern between
+  our `kotlin-dsl` (if any) and the official one.
+  The Gradle docs seem to agree that this is what's going on there:
+  <https://docs.gradle.org/current/userguide/plugins.html#sec:plugin_management>
+  The change was introduced in <https://github.com/Kotlin/kotlinx.coroutines/pull/2332>.
+* The build scripts in `buildSrc` *depend* on the Kotlin gradle plugin with the
+  version that can be specified from the command line. Ok, that makes sense.
+* The code in `buildSrc` provides a function to conditionally add one of the
+  repositories involved with the CI if the CI mode is enabled.
+* `settings.gradle` optionally updates the `kotlinVersion` to the CI one.
+  It's then used throughout the build scripts to refer to the various plugins.
+
+I think I got the gist of it here:
+<https://github.com/Kotlin/kotlinx-datetime/pull/257>
