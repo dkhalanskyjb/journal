@@ -3369,3 +3369,234 @@ mistaken:
 
 I think I got the gist of it here:
 <https://github.com/Kotlin/kotlinx-datetime/pull/257>
+
+
+2023-03-10
+----------
+
+A Friday is a nice day to leisurely catch some bugs. I'm going to hunt
+<https://teamcity.jetbrains.com/buildConfiguration/KotlinTools_KotlinxCoroutines_BuildAggregated/4078957?hideProblemsFromDependencies=false&hideTestsFromDependencies=false&expandBuildProblemsSection=true&expandBuildChangesSection=true&expandBuildTestsSection=true>
+
+So, this is a very interesting situation. In the test, which now has failed both
+on Windows and a Mac once, we see the interplay of three things:
+* `limitedParallelism`,
+* `newFixedThreadPoolContext` on Native,
+* and `coroutineScope`.
+
+We create a `newFixedThreadPoolContext`, wrap it in a `limitedParallelism`,
+repeatedly create `coroutineScope` where a bunch of coroutines run, *wait for
+the coroutine scope to finish*, and at the end, close the executor.
+
+The test fails, surprisingly, when something submits a new task after
+the executor is closed. There shouldn't be anything capable of doing that
+though, as all the tasks are supposed to be finished by the time
+`coroutineScope` exits.
+
+An additional tricky part is that I don't seem to be able to reproduce the crash
+with
+```kotlin
+fun testLimitedExecutor() = runTest {
+    while (true) { // loop the problematic code
+        val executor = newFixedThreadPoolContext(targetParallelism, "test")
+        val view = executor.limitedParallelism(targetParallelism)
+        doStress {
+            repeat(iterations) {
+                launch(view) {
+                    checkParallelism()
+                }
+            }
+        }
+        executor.close()
+    }
+}
+```
+
+I've been spinning it on my Linux for good ten minutes now, to no avail.
+
+Notably, all the failures we observed were not on the Nightly CI configuration,
+which enables stress testing, but on just the normal runs... Ah, wait, it's the
+Native, the `stressTestMultiplier` is always just 1.
+
+Maybe I should wrap the whole `runTest` in a loop instead?
+
+Fifteen minutes (one lunch) later, no failure when I loop the whole test.
+
+Did the state from other tests maybe somehow leak into this one, which is why
+just looping one test does not do anything? Or maybe the reason is me being on
+Linux and not Mac or Windows, where the issue reproduced, once in each?
+Or maybe fifteen minutes is not enough?
+
+Let's look through the history. Mac:
+```
+  iosX64WorkerWithNewMMTest.kotlinx.coroutines.sync.MutexTest
+  iosX64WorkerWithNewMMTest.kotlinx.coroutines.sync.SemaphoreTest
+  iosX64WorkerWithNewMMTest.kotlinx.coroutines.AtomicCancellationTest
+  iosX64WorkerWithNewMMTest.kotlinx.coroutines.CommonThreadLocalTest
+  iosX64WorkerWithNewMMTest.kotlinx.coroutines.ConcurrentExceptionsStressTest
+  iosX64WorkerWithNewMMTest.kotlinx.coroutines.DefaultDispatcherConcurrencyTest
+  iosX64WorkerWithNewMMTest.kotlinx.coroutines.IoDispatcherConcurrencyTest
+  iosX64WorkerWithNewMMTest.kotlinx.coroutines.JobStructuredJoinStressTest
+  iosX64WorkerWithNewMMTest.kotlinx.coroutines.LimitedParallelismConcurrentTest
+    kotlinx.coroutines.LimitedParallelismConcurrentTest.testLimitedExecutor[iosX64 worker with new MM]
+  :kotlinx-coroutines-core:iosX64WorkerWithNewMMTest (Thread[included builds Thread 2,5,main]) completed. Took 19.182 secs.
+  :kotlinx-coroutines-core:compileTestKotlinJsIr (Thread[included builds Thread 2,5,main]) started.
+  
+  1178 tests completed, 1 failed, 1 skipped
+  Test running process exited unexpectedly.
+  Current test: testLimitedExecutor
+  Process output:
+   Uncaught Kotlin exception: kotlin.IllegalStateException: Dispatcher test was closed, attempted to schedule: LimitedDispatcher@53c3da80
+  Invalid connection: com.apple.coresymbolicationd
+      at 0   workerWithNewMM.kexe                0x109b6708d        kfun:kotlinx.coroutines.MultiWorkerDispatcher.dispatch#internal + 1389 (/opt/buildAgent/work/44ec6e850d5c63f0/kotlinx-coroutines-core/native/src/MultithreadedDispatchers.kt:123:23)
+      at 1   workerWithNewMM.kexe                0x109b4c9a4        kfun:kotlinx.coroutines.internal.LimitedDispatcher#run(){} + 3236 (/opt/buildAgent/work/44ec6e850d5c63f0/kotlinx-coroutines-core/common/src/internal/LimitedDispatcher.kt:62:32)
+  Child process terminated with signal 6: Abort trap
+      at 2   workerWithNewMM.kexe                0x109b67fc8        kfun:kotlinx.coroutines.MultiWorkerDispatcher.$workerRunLoop$lambda$2COROUTINE$2988.invokeSuspend#internal + 1000 (/opt/buildAgent/work/44ec6e850d5c63f0/kotlinx-coroutines-core/native/src/MultithreadedDispatchers.kt:107:23)
+      at 3   workerWithNewMM.kexe                0x109a1a371        kfun:kotlin.coroutines.native.internal.BaseContinuationImpl#resumeWith(kotlin.Result<kotlin.Any?>){} + 337 (/opt/buildAgent/work/460cf706e11bbdb0/kotlin/kotlin-native/runtime/src/main/kotlin/kotlin/coroutines/ContinuationImpl.kt:27:44)
+      at 4   workerWithNewMM.kexe                0x109b4b317        kfun:kotlinx.coroutines.DispatchedTask#run(){} + 999 (/opt/buildAgent/work/44ec6e850d5c63f0/kotlinx-coroutines-core/common/src/internal/DispatchedTask.kt:106:71)
+      at 5   workerWithNewMM.kexe                0x109ad61ac        kfun:kotlinx.coroutines.EventLoopImplBase#processNextEvent(){}kotlin.Long + 2204 (/opt/buildAgent/work/44ec6e850d5c63f0/kotlinx-coroutines-core/common/src/EventLoop.common.kt:<unknown>)
+      at 6   workerWithNewMM.kexe                0x109b63479        kfun:kotlinx.coroutines#runBlocking(kotlin.coroutines.CoroutineContext;kotlin.coroutines.SuspendFunction1<kotlinx.coroutines.CoroutineScope,0:0>){0§<kotlin.Any?>}0:0 + 3641 (/opt/buildAgent/work/44ec6e850d5c63f0/kotlinx-coroutines-core/native/src/Builders.kt:56:5)
+      at 7   workerWithNewMM.kexe                0x109b63876        kfun:kotlinx.coroutines#runBlocking$default(kotlin.coroutines.CoroutineContext?;kotlin.coroutines.SuspendFunction1<kotlinx.coroutines.CoroutineScope,0:0>;kotlin.Int){0§<kotlin.Any?>}0:0 + 118 (/opt/buildAgent/work/44ec6e850d5c63f0/kotlinx-coroutines-core/native/src/Builders.kt:36:15)
+      at 8   workerWithNewMM.kexe                0x109b68735        kfun:kotlinx.coroutines.MultiWorkerDispatcher.$<init>$lambda$1$lambda$0$FUNCTION_REFERENCE$1718.$<bridge-UNN>invoke(){}#internal + 197 (/opt/buildAgent/work/44ec6e850d5c63f0/kotlinx-coroutines-core/native/src/MultithreadedDispatchers.kt:80:13)
+      at 9   workerWithNewMM.kexe                0x109a20e6f        WorkerLaunchpad + 127 (/opt/buildAgent/work/460cf706e11bbdb0/kotlin/kotlin-native/runtime/src/main/kotlin/kotlin/native/concurrent/Internal.kt:87:54)
+      at 10  workerWithNewMM.kexe                0x109fce5f5        _ZN6Worker19processQueueElementEb + 997
+      at 11  workerWithNewMM.kexe                0x109fce19c        _ZN12_GLOBAL__N_113workerRoutineEPv + 108
+      at 12  libsystem_pthread.dylib             0x7fff6bfee8fb     _pthread_start + 223
+      at 13  libsystem_pthread.dylib             0x7fff6bfea442     thread_start + 14
+```
+
+Windows:
+```
+  mingwX64Test.kotlinx.coroutines.DefaultDispatcherConcurrencyTest
+  mingwX64Test.kotlinx.coroutines.JobStructuredJoinStressTest
+  mingwX64Test.kotlinx.coroutines.LimitedParallelismConcurrentTest
+    kotlinx.coroutines.LimitedParallelismConcurrentTest.testLimitedExecutor[mingwX64]
+      at 6   ???                                 7ff72e5e1de8       kfun:kotlinx.coroutines#runBlocking(kotlin.coroutines.CoroutineContext;kotlin.coroutines.SuspendFunction1<kotlinx.coroutines.CoroutineScope,0:0>){0§<kotlin.Any?>}0:0 + 3560
+  :kotlinx-coroutines-core:mingwX64Test (Thread[Execution worker for ':' Thread 3,5,main]) completed. Took 15.29 secs.
+  :kotlinx-coroutines-core:linkWorkerWithNewMMDebugTestMingwX64 (Thread[Execution worker for ':' Thread 3,5,main]) started.
+      at 7   ???                                 7ff72e5e220e       kfun:kotlinx.coroutines#runBlocking$default(kotlin.coroutines.CoroutineContext?;kotlin.coroutines.SuspendFunction1<kotlinx.coroutines.CoroutineScope,0:0>;kotlin.Int){0§<kotlin.Any?>}0:0 + 126
+      at 8   ???                                 7ff72e5e7090       kfun:kotlinx.coroutines.MultiWorkerDispatcher.$<init>$lambda$1$lambda$0$FUNCTION_REFERENCE$1709.$<bridge-UNN>invoke(){}#internal + 208
+      at 9   ???                                 7ff72e49f555       WorkerLaunchpad + 133
+      at 10  ???                                 7ff72ea4aea5       _ZN6Worker19processQueueElementEb + 1029
+      at 11  ???                                 7ff72ea4aa2a       _ZN12_GLOBAL__N_113workerRoutineEPv + 90
+      at 12  ???                                 7ff72ea50792       pthread_create_wrapper + 306
+      at 13  ???                                 7ffb0e57b0ea       _ZSt25__throw_bad_function_callv + 16637819914
+      at 14  ???                                 7ffb0e57b1bc       _ZSt25__throw_bad_function_callv + 16637820124
+      at 15  ???                                 7ffb0c5a7974       _ZSt25__throw_bad_function_callv + 16604447892
+      at 16  ???                                 7ffb0e66a2f1       _ZSt25__throw_bad_function_callv + 16638799377
+```
+
+Hey, got it! Twenty minutes were enough to reproduce the issue. So, no intertest
+interaction magic this time.
+
+Let's try to simplify the test a bit an see if it still reproduces.
+First, try to remove the loops, just launch a single coroutine in a coroutine
+scope instead.
+
+Hey, no, I don't think it will work. The stack traces are all with the *workers*
+trying to schedule another task, so we'll need at least some non-trivial task
+interaction. Ok, let's just reduce the number of iterations from `100_000`
+to 100. If the bug doesn't depend on the overwhelming amount of coroutines to
+surface, it should trigger even faster, since more iterations will have a chance
+to happen in the same span of time.
+
+Maybe I should put my computer under more stress to trigger various
+interleavings. Play Elden Ring or something. Just kidding, of course: these
+business-oriented laptops probably can't even run Portal with their measly
+videocard.
+
+It still failed, in just 12 minutes. Good!
+
+Ah, the IDEs.
+
+```kotlin
+    @Test
+    fun testLimitedExecutor() {
+        while (true) {
+            runTest {
+                val executor = newFixedThreadPoolContext(targetParallelism, "test")
+                val view = executor.limitedParallelism(targetParallelism)
+                doStress {
+                    repeat(100) {
+                        launch(view) {
+                            checkParallelism()
+                        }
+                    }
+                }
+                executor.close()
+            }
+        }
+    }
+
+    private suspend inline fun doStress(crossinline block: suspend CoroutineScope.() -> Unit) {
+        repeat(stressTestMultiplier) {
+            coroutineScope {
+                block()
+            }
+        }
+    }
+```
+
+"Inline `doStress`!"
+
+```kotlin
+    @Test
+    fun testLimitedExecutor() {
+        while (true) {
+            runTest {
+                val executor = newFixedThreadPoolContext(targetParallelism, "test")
+                val view = executor.limitedParallelism(targetParallelism)
+                repeat(stressTestMultiplier) {
+                    coroutineScope {
+                        repeat(100) {
+                            launch(view) {
+                                checkParallelism()
+                            }
+                        }
+                        this.
+                    }
+                }
+                executor.close()
+            }
+        }
+    }
+```
+
+Yeah, let's do this by hand instead by just replacing `doStress` with
+`coroutineScope`.
+
+So, yeah, the next step is to try to remove the extra code between
+`coroutineScope` and `executor.close()`. You never know if it's the compiler
+that messed up.
+
+Great, it failed even quicker, in 10 minutes, after about 4k iterations.
+When I manage to take it down to 5 minutes, I'll try removing the
+`limitedParallelism` part, though it really seems to be the key of the issue:
+looking at the code of `LimitedDispatcher`, I get a suspicion that it can
+occasionally schedule tasks even when the dispatcher no longer supports it...
+
+Yeah, this seems to be the issue. *Almost* all the dispatches are in response
+to a task arriving, but there's one exception: to support fairness, the
+procedure used by `LimitedDispatcher` sporadically re-dispatches itself.
+Let's try to artificially increase the rate at which it happens by making the
+dispatchers more fair...
+
+Yes, this time it took just a thousand iterations to encounter the error
+condition.
+
+Well, this is going to be tough to fix.
+
+Or not! The trick is to have a separate object for each thread currently doing
+work in `LimitedDispatcher`. This object always stores the current task, so it's
+impossible for it to exist unless there's a task ready for it. And the changes
+to the source code also look simple.
+
+Of course, there's always the possibility of this:
+```
+kotlinx.coroutines.CoroutinesInternalError: Fatal exception in coroutines machinery for DispatchedContinuation[LimitedDispatcher@56de5042, Continuation at kotlinx.coroutines.LimitedParallelismConcurrentTest$testLimitedExecutor$1$1$1$1.invokeSuspend(LimitedParallelismConcurrentTest.kt)@5fce8ff7]. Please read KDoc to 'handleFatalException' method and report this incident to maintainers
+```
+
+Several tests fail with this. Oh well, let's dig in.
+
+Silly me, I allowed to run the same task several times.
+
+What, that wasn't it? I'm in deep now.
