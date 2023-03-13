@@ -3600,3 +3600,90 @@ Several tests fail with this. Oh well, let's dig in.
 Silly me, I allowed to run the same task several times.
 
 What, that wasn't it? I'm in deep now.
+
+
+It wasn't easy, but finally, I managed to find the culprit and fix the issue:
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3672>
+
+
+2023-03-13
+----------
+
+If something can be depended on, it will be depended on:
+<https://github.com/Kotlin/kotlinx.coroutines/issues/3673>.
+
+Thinking about <https://github.com/Kotlin/kotlinx.coroutines/issues/3658>.
+
+Let's imagine a scary function that wraps the pattern:
+```kotlin
+/**
+ * An equivalent to a `catch` block, but for code using coroutines: cancellations of operations will not be passed to
+ * the handler, even if it catches any `Throwable`.
+ *
+ * Usage example:
+ * ```
+ * suspend {
+ *   withTimeout(1.seconds) {
+ *     CompletableDeferred<Int>().await()
+ *   }
+ * }.catchInCoroutines { e: Throwable ->
+ *   println("caught $e")
+ * }
+ * ```
+ */
+public suspend inline fun<T, reified E : Throwable> (suspend () -> T).catchInCoroutines(handle: (E) -> T): T =
+    try {
+        this()
+    } catch (e: Throwable) {
+        currentCoroutineContext().ensureActive()
+        if (e is E) {
+            handle(e)
+        } else {
+            throw e
+        }
+    }
+```
+
+Does this function meet the high standard of being suitable as a language
+primitive? If not, about which issues should the users of the pattern know?
+
+Let's consider the list `p` of statements performed during a particular
+execution. Looks like, if `p` is empty, then
+`suspend { p }.catchInCoroutines(handle)` is a no-op. If `p == p1 + p2`, then
+```kotlin
+suspend { p }.catchInCoroutines(handle)
+```
+behaves the same as
+```
+var throwable: Throwable? = null
+suspend { p1 }.catchInCoroutines {
+  throwable = it
+  handle(it)
+}
+if (throwable == null) {
+  suspend { p2 }.catchInCoroutines(handle)
+}
+```
+So far, this is typical behavior for `catch` blocks, which roughly means we have
+a homomorphism from plain executions to executions wrapped in
+`suspend { ... }.catchInCoroutines(handle)` with premature completion semantics.
+The homomorphism means that it's enough to consider the executed operations one
+by one.
+
+Which operations can those be?
+* Non-throwing non-suspend operations. `catchInCoroutines` exhibits no special
+  behavior.
+* Suspending. Such operations are exactly the ones for which this is done.
+  If cancellation races with suspending, we get exactly the behavior we would
+  usually get, only with the correct handling of scenarios where a suspending
+  function throws a `CancellationException`.
+  However, we get non-linearizability when someone observes the continuation as
+  being not cancelled but completed, but the operation as a whole still finishes
+  with a `CancellationException`. This shouldn't be an issue with the prompt
+  cancellation guarantee used throughout the coroutines though, which leads to
+  the same behavior. The pattern also wouldn't be leaky in this case, as the
+  prompt cancellation guarantee is the same as what happens here.
+* `throw X`. The pattern makes this a suspension point for some reason, but I
+  don't see cases where this could harm anything.
+
+Need to think a bit more about this. Maybe change the framework.
