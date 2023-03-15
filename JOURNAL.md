@@ -3687,3 +3687,22 @@ Which operations can those be?
   don't see cases where this could harm anything.
 
 Need to think a bit more about this. Maybe change the framework.
+
+
+2023-03-15
+----------
+
+Yesterday, I just went ahead and read the issue trackers, and also played a
+little bit with the build of kotlinx-datetime:
+<https://github.com/Kotlin/kotlinx-datetime/pull/259>
+
+Today, added the supported Kotlin/Native targets:
+* <https://github.com/Kotlin/kotlinx-datetime/pull/259>
+* <https://github.com/Kotlin/kotlinx-datetime/pull/260>
+* <https://github.com/Kotlin/kotlinx-datetime/pull/261>
+
+I should probably finish
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3672>: now that I think about
+it, there are at least some cases when this could probably be easily tested.
+
+Yeah, turned out just fine.
