@@ -3706,3 +3706,18 @@ I should probably finish
 it, there are at least some cases when this could probably be easily tested.
 
 Yeah, turned out just fine.
+
+
+2023-03-16
+----------
+
+Still dealing with kotlinx-datetime build, but I also came back to work on the
+formatting things.
+
+First, my computer crashed due to compiling two Gradle projects at a time.
+At that moment, I lost several journal entries. Then, I wrote about it here, and
+then, the computer crashed the second time. Now I don't know the reason.
+
+Looked into <https://github.com/Kotlin/kotlinx.coroutines/pull/3678>,
+and checked whether the train integration works in the `kotlinx-datetime`, and
+it does.
