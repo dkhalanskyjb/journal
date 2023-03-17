@@ -3721,3 +3721,10 @@ then, the computer crashed the second time. Now I don't know the reason.
 Looked into <https://github.com/Kotlin/kotlinx.coroutines/pull/3678>,
 and checked whether the train integration works in the `kotlinx-datetime`, and
 it does.
+
+
+2023-03-17
+----------
+
+Going back to datetime formatting. Time to punch the keyboard keys, expressing
+my thoughts.
