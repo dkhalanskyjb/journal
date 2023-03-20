@@ -3895,3 +3895,18 @@ fun<T, U, A> Iterable<T>.paddedZip(other: Iterable<U>, defaultLeft: T, defaultRi
 This is one more case where a `repr()`-like functionality in Kotlin would be
 welcome: then, I'd be able to avoid `constrString` and would instead just get
 the string representation of "interesting" objects.
+
+Trying to understand why the format `"yyyy"` is so popular, via
+<https://grep.app/search?q=%28of%7Cappend%29Pattern%5C%28%22yyyy%22%5C%29&regexp=true&filter[lang][0]=Java&filter[lang][1]=Scala&filter[lang][2]=Kotlin>.
+* <https://github.com/elastic/logstash/blob/main/tools/benchmark-cli/src/main/java/org/logstash/benchmark/cli/ui/UserOutput.java>
+  Here, it's used as part of an (incorrectly, localized) format.
+* <https://github.com/buchen/portfolio/blob/master/name.abuchen.portfolio.ui/src/name/abuchen/portfolio/ui/util/chart/TimeGridHelper.java>
+  Depending on how far the moment was, we may only be interested in the year.
+* <https://github.com/elastic/elasticsearch/blob/main/x-pack/plugin/sql/src/main/java/org/elasticsearch/xpack/sql/expression/function/scalar/datetime/DateFormatter.java#L145>
+  Here, it's unclear how the format is localized, but the approach to caching
+  the builder objects is notable.
+* <https://github.com/201206030/novel/blob/master/src/main/java/io/github/xxyopen/novel/service/impl/ResourceServiceImpl.java#L56>
+  Hey, this is interesting. `yyyy/mm/dd`, but separated with the filesystem `/`.
+
+<https://github.com/StarRocks/starrocks/pull/19846> helping out a bit while I'm
+at it.
