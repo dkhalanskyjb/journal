@@ -3844,27 +3844,51 @@ val interestingOffsets: List<UtcOffset> = listOf(
     UtcOffset(18),
 )
 
-fun generateTestData(tp: Int, format: DateTimeFormatter) {
-    println("buildMap<${name(tp)}, Pair<String, Set<String>> {")
+fun generateTestData(tp: Int, pattern: String, secondsPresent: Boolean, nanosPresent: Boolean) {
+    val times = if (nanosPresent) {
+        interestingTimes
+    } else if (secondsPresent) {
+        interestingTimes.filter { it.nanosecond == 0 }
+    } else {
+        interestingTimes.filter { it.second == 0 && it.nanosecond == 0 }
+    }
+    val format = DateTimeFormatter.ofPattern(pattern)
+    println("buildMap<${name(tp)}, Pair<String, Set<String>>> {")
     val interestingZdts: List<ZonedDateTime> = when (tp) {
-        DATE -> interestingDates.map { it.toJavaLocalDate().atStartOfDay(ZoneId.of("UTC")) }
-        TIME -> interestingTimes.map {
+        DATE -> interestingDates.map {
+            it.toJavaLocalDate().atStartOfDay(ZoneId.of("UTC"))
+        }
+        TIME -> times.map {
             it.toJavaLocalTime().atDate(
                 LocalDate(2000, 1, 1).toJavaLocalDate()
             ).atZone(ZoneId.of("UTC"))
         }
-        DATETIME -> interestingDates.flatMap { date ->
-            interestingTimes.map { time ->
-                time.toJavaLocalTime().atDate(date.toJavaLocalDate()).atZone(ZoneId.of("UTC"))
-            }
+        DATETIME -> interestingDates.paddedZip(times, LocalDate(2022, 1, 2), LocalTime(13, 44, 0)) { date, time ->
+            time.toJavaLocalTime().atDate(date.toJavaLocalDate()).atZone(ZoneId.of("UTC"))
         }
         OFFSET -> interestingOffsets.map { ZonedDateTime.of(2020, 5, 6, 20, 15, 58, 0, it.toJavaZoneOffset()) }
         else -> throw UnsupportedOperationException("$tp")
     }
     for (zdt in interestingZdts) {
-        println("  put(${zdt.constrString(tp)}, (${escapeString(format.format(zdt))}, setOf()))")
+        println("  put(${zdt.constrString(tp)}, (${escapeString(format.format(zdt))} to setOf()))")
     }
     println("}")
+}
+
+fun<T, U, A> Iterable<T>.paddedZip(other: Iterable<U>, defaultLeft: T, defaultRight: U, transform: (T, U) -> A): List<A> {
+    val first = iterator()
+    val second = other.iterator()
+    val list = mutableListOf<A>()
+    while (first.hasNext() && second.hasNext()) {
+        list.add(transform(first.next(), second.next()))
+    }
+    while (first.hasNext()) {
+        list.add(transform(first.next(), defaultRight))
+    }
+    while (second.hasNext()) {
+        list.add(transform(defaultLeft, second.next()))
+    }
+    return list
 }
 ```
 
