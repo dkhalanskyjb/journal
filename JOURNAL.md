@@ -3728,3 +3728,146 @@ it does.
 
 Going back to datetime formatting. Time to punch the keyboard keys, expressing
 my thoughts.
+
+
+2023-03-18
+----------
+
+So, the immediate task right now is to restructure the internal `Parser` API so
+that the consumers (in the form of `Format`) don't have to jump through any
+hoops. Right now, the `ParserStructure.simplify` function in `Format` actually
+just implements the second stage of the monoidal concatenation.
+Non-simplified `Parser` instances are just plain illegal.
+
+There's the slight issue when implementing a monoidal `append` for `Parser` that
+also performs simplification: it seems to have an inherent worst-case complexity
+of `O(size of the left operand)`. If we build a `Format` using this, we get a
+`O(size of the format ^ 2)` complexity of building the parser, which is not so
+tiny already.
+
+Probably need a custom `mconcat` here.
+
+
+It turned out to be very involved and error-prone. Unfortunately, I only have
+the ISO 8601 serialization tests to rely on so far, and can't be sure about the
+fine points of the behavior. So, a better idea for now is to grab the top
+most used formats, specify them and see if there are any issues.
+
+Here's the code I'm using to generate test data:
+
+```kotlin
+const val DATE = 1
+const val TIME = 2
+const val DATETIME = 3
+const val OFFSET = 4
+
+fun name(tp: Int) = when (tp) {
+    DATE -> "LocalDate"
+    TIME -> "LocalTime"
+    DATETIME -> "LocalDateTime"
+    OFFSET -> "UtcOffset"
+    else -> throw UnsupportedOperationException("$tp")
+}
+
+fun ZonedDateTime.constrString(tp: Int) = when (tp) {
+    DATE -> "LocalDate($year, $monthValue, $dayOfMonth)"
+    TIME -> "LocalTime($hour, $minute, $second, $nano)"
+    DATETIME -> "LocalDateTime($year, $monthValue, $dayOfMonth, $hour, $minute, $second, $nano)"
+    OFFSET -> "UtcOffset(${offset.toKotlinUtcOffset().format("hh, mm, ss")})"
+    else -> throw UnsupportedOperationException("$tp")
+}
+
+fun escapeString(str: String) = '"' + str + '"'
+
+val interestingDates: List<LocalDate> = listOf(
+    LocalDate(2008, 7, 5),
+    LocalDate(2007, 12, 31),
+    LocalDate(999, 12, 31),
+    LocalDate(-1, 1, 2),
+    LocalDate(9999, 12, 31),
+    LocalDate(-9999, 12, 31),
+    LocalDate(10000, 1, 1),
+    LocalDate(-10000, 1, 1),
+    LocalDate(123456, 1, 1),
+    LocalDate(-123456, 1, 1),
+)
+
+val interestingTimes: List<LocalTime> = listOf(
+    LocalTime(0, 0, 0, 0),
+    LocalTime(1, 0, 0, 0),
+    LocalTime(23, 0, 0, 0),
+    LocalTime(0, 1, 0, 0),
+    LocalTime(12, 30, 0, 0),
+    LocalTime(23, 59, 0, 0),
+    LocalTime(0, 0, 1, 0),
+    LocalTime(0, 0, 59, 0),
+    LocalTime(0, 0, 0, 100000000),
+    LocalTime(0, 0, 0, 10000000),
+    LocalTime(0, 0, 0, 1000000),
+    LocalTime(0, 0, 0, 100000),
+    LocalTime(0, 0, 0, 10000),
+    LocalTime(0, 0, 0, 1000),
+    LocalTime(0, 0, 0, 100),
+    LocalTime(0, 0, 0, 10),
+    LocalTime(0, 0, 0, 1),
+    LocalTime(0, 0, 0, 999999999),
+    LocalTime(0, 0, 0, 99999999),
+    LocalTime(0, 0, 0, 9999999),
+    LocalTime(0, 0, 0, 999999),
+    LocalTime(0, 0, 0, 99999),
+    LocalTime(0, 0, 0, 9999),
+    LocalTime(0, 0, 0, 999),
+    LocalTime(0, 0, 0, 99),
+    LocalTime(0, 0, 0, 9),
+)
+
+val interestingOffsets: List<UtcOffset> = listOf(
+    UtcOffset(-18),
+    UtcOffset(-17, -59, -58),
+    UtcOffset(-4, -3, -2),
+    UtcOffset(0, 0, -1),
+    UtcOffset(0, -1, 0),
+    UtcOffset(0, -1, -1),
+    UtcOffset(-1, 0, 0),
+    UtcOffset(-1, 0, -1),
+    UtcOffset(-1, -1, 0),
+    UtcOffset(-1, -1, -1),
+    UtcOffset(0, 0, 0),
+    UtcOffset(0, 1, 0),
+    UtcOffset(0, 1, 1),
+    UtcOffset(1, 0, 0),
+    UtcOffset(1, 0, 1),
+    UtcOffset(1, 1, 0),
+    UtcOffset(1, 1, 1),
+    UtcOffset(4, 3, 2),
+    UtcOffset(17, 59, 58),
+    UtcOffset(18),
+)
+
+fun generateTestData(tp: Int, format: DateTimeFormatter) {
+    println("buildMap<${name(tp)}, Pair<String, Set<String>> {")
+    val interestingZdts: List<ZonedDateTime> = when (tp) {
+        DATE -> interestingDates.map { it.toJavaLocalDate().atStartOfDay(ZoneId.of("UTC")) }
+        TIME -> interestingTimes.map {
+            it.toJavaLocalTime().atDate(
+                LocalDate(2000, 1, 1).toJavaLocalDate()
+            ).atZone(ZoneId.of("UTC"))
+        }
+        DATETIME -> interestingDates.flatMap { date ->
+            interestingTimes.map { time ->
+                time.toJavaLocalTime().atDate(date.toJavaLocalDate()).atZone(ZoneId.of("UTC"))
+            }
+        }
+        OFFSET -> interestingOffsets.map { ZonedDateTime.of(2020, 5, 6, 20, 15, 58, 0, it.toJavaZoneOffset()) }
+        else -> throw UnsupportedOperationException("$tp")
+    }
+    for (zdt in interestingZdts) {
+        println("  put(${zdt.constrString(tp)}, (${escapeString(format.format(zdt))}, setOf()))")
+    }
+    println("}")
+}
+```
+
+This is one more case where a `repr()`-like functionality in Kotlin would be
+welcome: then, I'd be able to avoid `constrString` and would instead just get
+the string representation of "interesting" objects.
