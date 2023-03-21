@@ -3910,3 +3910,18 @@ Trying to understand why the format `"yyyy"` is so popular, via
 
 <https://github.com/StarRocks/starrocks/pull/19846> helping out a bit while I'm
 at it.
+
+
+2023-03-21
+----------
+
+Reviewing the pull requests in coroutines for a start.
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3686/files#r1143242723> looks
+like an interesting challenge.
+
+Turned out fairly simple.
+
+Updated <https://github.com/Kotlin/kotlinx-datetime/pull/257>.
+
+Finished reviewing the current coroutine requests, and also started to work on
+the "Java datetime format string to Kotlin formatter" conversion function.
