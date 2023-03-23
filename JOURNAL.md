@@ -3925,3 +3925,51 @@ Updated <https://github.com/Kotlin/kotlinx-datetime/pull/257>.
 
 Finished reviewing the current coroutine requests, and also started to work on
 the "Java datetime format string to Kotlin formatter" conversion function.
+
+
+2023-03-22
+----------
+
+I see that <https://docs.oracle.com/javase/8/docs/api/java/text/DateFormatSymbols.html#getMonths-->
+provides the names of formatted months, but where are the standalone month
+names? Are they even available from the locale? I can't find any code in 310bp
+that would properly build the standalone month names dictionary.
+
+
+2023-03-23
+----------
+
+Yeah, with 310bp, I get a failure in
+```
+Locale ru = new Locale("ru", "RU");
+DateTimeFormatter test = DateTimeFormatter.ofPattern("LLLL", ru);
+assertEquals("Январь", test.format(LocalDate.of(2012, 1, 1)));
+```
+"января" is returned instead.
+
+So, I guess there's just no direct access to the standalone forms in the Java
+locale API?
+
+Let's see how much the built-in Java formatters are used, by the matches on
+grep.app:
+* `BASIC_ISO_DATE` (`20230123`): 123
+* `ISO_DATE` (`2023-03-24` or `2023-03-24+01:00`): 363
+* `ISO_DATE_TIME` (`2023-03-24T21:35:31`, `2023-03-24T21:35:31+01:00`,
+  or `2023-03-24T21:35:31+01:00[Europe/Paris]`): 592
+* `ISO_INSTANT` (`2023-03-24T21:35:31Z`): 566
+* `ISO_LOCAL_DATE` (`2023-03-24`): 688
+* `ISO_LOCAL_DATE_TIME` (`2023-03-24T03:53:21`): 565
+* `ISO_LOCAL_TIME` (`03:53:21`): 313
+* `ISO_OFFSET_DATE` (`2023-03-24+01:00`): 23
+* `ISO_OFFSET_DATE_TIME` (`2023-03-24T23:31:33+01:00`): 783
+* `ISO_OFFSET_TIME` (`23:31:33+01:00`): 84
+* `ISO_ORDINAL_DATE` (`2021-134`): 23
+* `ISO_TIME` (`03:53:21`, `03:53:21+01:00`): 98
+* `ISO_WEEK_DATE` (`2012-W48-6`): 27
+* `ISO_ZONED_DATE_TIME` (`2023-03-24T21:35:31+01:00[Europe/Paris]`): 248
+* `RFC_1123_DATE_TIME` (`Tue, 3 Jun 2008 11:05:35 GMT`): 352
+
+Some very surprising finds here. I'd never guess that `ISO_ZONED_DATE_TIME` was
+so popular. That said, the timezone section in that format is optional, in spite
+of what the table in the documentation for `DateTimeFormatter` claims, so it can
+be used the same way as `ISO_OFFSET_DATE_TIME`.
