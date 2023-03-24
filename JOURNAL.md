@@ -3973,3 +3973,11 @@ Some very surprising finds here. I'd never guess that `ISO_ZONED_DATE_TIME` was
 so popular. That said, the timezone section in that format is optional, in spite
 of what the table in the documentation for `DateTimeFormatter` claims, so it can
 be used the same way as `ISO_OFFSET_DATE_TIME`.
+
+Oh! <https://dev.epicgames.com/documentation/en-us/uefn/verse-language-reference>
+Finally, the Verse language is here.
+
+2023-03-24
+----------
+
+Final edits to the paper.
