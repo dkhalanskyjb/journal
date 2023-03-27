@@ -3981,3 +3981,48 @@ Finally, the Verse language is here.
 ----------
 
 Final edits to the paper.
+
+2023-03-27
+----------
+
+Looks like I'm all done with coroutines for now.
+
+Setting up a Windows virtual machine on my computer to be able to write the pure
+Kotlin implementation for it. I already had success with the
+<https://github.com/quickemu-project/quickemu> tool, so hopefully, I'll get it
+running.
+
+Alas, nothing is so simple. 
+
+I use the Nix package manager on top of the corporate-issued Ubuntu. Naturally,
+most software works fine, but some doesn't, namely, anything that uses OpenGL.
+It's a known issue with the Nix package manager: unless you use NixOS, the
+package manager has no way of knowing what libraries implementing the OpenGL
+interface to link to. The issue is, they are heavily dependent on the kernel
+version. These libraries are very tightly coupled with the videocard drivers
+and need to be updated in tandem with them, but without knowing which kernel is
+used, there's no way to do that.
+
+There's a known fix for that: just call <https://github.com/guibou/nixGL>, and
+you're all set. Except it doesn't work for me for some reason.
+Even more surprisingly, even plain, non-Nix `glxinfo` doesn't work:
+```
+$ glxinfo
+name of display: :0
+Error: couldn't find RGB GLX visual or fbconfig
+```
+
+The complicated thing is that I'm using `sway` from Nix to run everything.
+Could XWayland be to blame? Could Ubuntu? Could sway? Or Nix?
+
+Looking through the output of `set`, I don't see anything suspicious.
+So, likely, `sway` is not to blame: it's not the window manager's responsibility
+to configure OpenGL.
+
+While I'm researching this, I managed to find a workaround: run `qemu` with
+the Spice display, not the SDL one, and so without OpenGL. Still, OpenGL is
+worth fixing.
+
+*Meanwhile*, let's try getting rid of the `infra` plugin in kotlinx-datetime.
+Maybe it's the root of my bigger issue: lack of autocompletion of
+platform-specific declarations in Kotlin/Native.
