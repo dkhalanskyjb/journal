@@ -4026,3 +4026,21 @@ worth fixing.
 *Meanwhile*, let's try getting rid of the `infra` plugin in kotlinx-datetime.
 Maybe it's the root of my bigger issue: lack of autocompletion of
 platform-specific declarations in Kotlin/Native.
+
+2023-03-28
+----------
+
+To take a break from all the formatting business, today, I'm rewriting the
+Windows implementation of datetime library to pure Kotlin. Unfortunately,
+I used this function initially:
+<https://learn.microsoft.com/en-us/windows/win32/api/timezoneapi/nf-timezoneapi-enumdynamictimezoneinformation>
+Turns out, I shouldn't have used anything that doesn't work on Windows 7:
+<https://github.com/Kotlin/kotlinx-datetime/issues/262>
+
+Now, I have to dive deeply into how Windows stores the timezones in the
+registry.
+
+That said, it's still a simple, straightforward task with a clear scope.
+I'm really enjoying the process, even though the experience is not really
+enjoyable: I'm writing WinAPI code in Kotlin with the IDE running in a virtual
+machine without hardware acceleration of graphics.
