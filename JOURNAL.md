@@ -4044,3 +4044,34 @@ That said, it's still a simple, straightforward task with a clear scope.
 I'm really enjoying the process, even though the experience is not really
 enjoyable: I'm writing WinAPI code in Kotlin with the IDE running in a virtual
 machine without hardware acceleration of graphics.
+
+
+2023-04-17
+----------
+
+So, back from a vacation, after which I didn't write the journal for several
+more days: they were too hectic, as days immediately following vacations are
+known to be, with much correspondence to wade through. After that, I worked a
+bit on the datetime formatting, mainly implementing the mechanism of sign
+handling.
+
+The final idea as of now is that each field may have a sign associated with it,
+and several fields may have the same associated sign. For example, in the UTC
+offset, all the fields are linked to the same sign. After much thought,
+I reached the simple conclusion that, in `+03:30`, the `30` should never be
+allowed to have a separate sign, it's just not how the UTC offset formats work
+in real life. This creates a bit of a disparity between the formatting API and
+the `UtcOffset(hours, minutes, seconds)` constructor that forces each field to
+have the same sign, but still, to have a sign.
+
+Oh yeah, I also finally implemented the conversion function from the Unicode
+format strings to the datetime formatter.
+Next, I'm going to work on the `repr` for the formatters so that it's easy to
+migrate from the formatter received from the migration functions.
+
+A huge irritation for me is the issue of different representations for the same
+thing: 24-hour VS 12-hour + AM/PM; a signed number VS an unsigned + a sign;
+year + month + day VS week-year + week-of-year + weekday, etc. I've encountered
+this often enough already and my code is sufficiently full of workarounds for
+this that I'm starting to wonder if I'm missing some approach that would allow
+me to express these alternatives clearly.
