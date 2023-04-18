@@ -4075,3 +4075,66 @@ year + month + day VS week-year + week-of-year + weekday, etc. I've encountered
 this often enough already and my code is sufficiently full of workarounds for
 this that I'm starting to wonder if I'm missing some approach that would allow
 me to express these alternatives clearly.
+
+Ah, how do I miss the lenses.
+
+
+2023-04-18
+----------
+
+So, today, the weather is a bit terrible, so I don't have it in me to do
+anything demanding. I'm just slowly trudging through writing tests for the
+datetime formatting and, when tired of that, fixing the laptop. Recurring
+readers of this blog may remember that I had issues with OpenGL not working.
+Well, I found the culprit, though I still don't wholly understand what's going
+on.
+
+Turns out, on Wayland, the window manager *does* affect how the normal windows
+behave. Even if programs know where to find the OpenGL drivers, Wayland itself
+handles the OpenGL context somehow and prevents the programs from reaching it.
+So, when running Wayland, OpenGL programs depend on whether the Wayland
+compositor works with OpenGL...
+
+... But, if the compositor is from `home-manager` (that is, from the Nix
+package manager), then it can't use the OpenGL implementation. The OpenGL
+libraries are tightly coupled with the video drivers, and not knowing what the
+kernel (or probably even the OS) this is, Nix has no way of accessing the
+correct OpenGL implementation.
+
+So, the solution is to install `sway` system-wide and launch that. The config
+is still controlled by `home-manager`, so no portability is lost. Maybe there
+will be some bugs due to version mismatches, but it still beats having no
+OpenGL.
+
+Now, OpenGL works:
+```
+$ glxinfo | grep Device
+    Device: Mesa Intel(R) UHD Graphics 630 (CFL GT2) (0x3e9b)
+```
+
+It's interesting though how I could utilize the NVidia GPU. It's fairly
+powerful, and I'm sure the Android emulator and the QEMU window, which I
+occasionally do have to launch, would appreciate it. The Ubuntu has
+Bumblebee preinstalled, but
+```
+$ optirun glxnifo
+[ 2762.920495] [ERROR]Cannot access secondary GPU - error: [XORG] (EE) Failed to load module "mouse" (module does not exist, 0)
+```
+
+After installing the mouse package `xserver-xorg-input-mouse` and rebooting,
+I get the error
+```
+[   65.350018] [ERROR]Cannot access secondary GPU - error: [XORG] (EE) NOUVEAU(0): [drm] failed to set drm interface version.
+```
+
+...
+
+Hey, wait.
+
+```
+$ DRI_PRIME=1 glxinfo | grep "Device"
+    Device: NV137 (0x1cbb)
+```
+
+I don't need any `optirun`, `primusrun`, or anything like that, it seems.
+I wonder how it works, but I'll take the easy win gladly.
