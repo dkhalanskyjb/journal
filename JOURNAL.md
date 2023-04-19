@@ -4138,3 +4138,59 @@ $ DRI_PRIME=1 glxinfo | grep "Device"
 
 I don't need any `optirun`, `primusrun`, or anything like that, it seems.
 I wonder how it works, but I'll take the easy win gladly.
+
+Also, I fixed the messed-up boot process. In general, it seems, now I have a
+work machine that works very nicely. With OpenGL enabled, I get *immensely*
+better performance from QEMU, as expected, but for some reason, the CPU usage
+dropped overall.
+
+
+2023-04-19
+----------
+
+A nice rainy day, perfect for staying at home and reading some books. Not an
+option though. Everyone's waiting for me to finish the goddamn formatting PR.
+I just need to focus and perform the (another) final rush. It's funny that
+I've been doing these "final rushes" for a while now, each time thinking,
+"This is it! One final rush!" This time, though, it looks like there's just
+no obsure places for complexity to hide in anymore. I'm completely exhausted
+from all this already, but I don't think I regret the effort I put into this.
+We don't grow without being challenged, and this marathon, for sure, was a huge
+challenge. I learned a lot about pushing myself to the limit while keeping the
+marathon pace, without turning this into a series of sprints. And also, about
+Kotlin's type system.
+
+Now's as good a time as any to list the notable omissions that still need to be
+implemented before the draft PR of formatting can be considered
+feature-complete.
+
+* Yes, I still need to implement pretty-printing of formatters. Otherwise,
+  there's no clear migration path to our formatting capabilities.
+* I think I should make `-` a non-special character in the format strings.
+  `yyyy-mm-dd` is too common a format to write it as `yyyy'-'mm'-'dd`,
+  complaining about months being unsigned otherwise.
+* Parser needs to recognize the concepts of "inside a word" and "inside a
+  number", preventing `find` from parsing strings like `12020-01-02` as
+  `2020-01-02`.
+* Actually, I am yet to expose `find` through the public API. Need to do that.
+* Also, introduce the `DateTimeFormat<T>` interface for the `parse`, `toString`,
+  `find`, etc, so that they share the documentation.
+
+There's a week and a half left until May. Let's warm up my deadline angst by
+promising to this diary that I'm going to make it until then. My calendar is
+open next to me, and crossing out days one after another is sure to boost my
+productivity.
+
+For any readers not from JetBrains, I should note that this soul-crushing
+experience is completely self-imposed. I guess I'm just the kind of person that
+enjoys miserably plowing through insurmountable tasks, listening to the heavy
+rock songs from the Sonic the Hedgehog game series OST. Examples:
+* <https://soundcloud.com/user-675036643/sonic-frontiers-ost-do-or-die-boss-theme>
+* <https://soundcloud.com/csaba-jynx-padar/sonic-adventure-open-your-heart-crush-40>
+* <https://soundcloud.com/sonic-the-hedgeog/sonic-adventure-2-live-and-learn>
+
+That's the way I worked through all the difficult tasks I've had, like
+a year and a half of formal proofs, or the test framework for the coroutines.
+
+Reviewed the release notes for the new release of coroutines. Working on the
+pretty-printing of formatters.
