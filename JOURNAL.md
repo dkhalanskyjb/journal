@@ -4194,3 +4194,14 @@ a year and a half of formal proofs, or the test framework for the coroutines.
 
 Reviewed the release notes for the new release of coroutines. Working on the
 pretty-printing of formatters.
+
+
+2023-04-25
+----------
+
+Fell ill for a couple of days. I've still not recovered fully, but to avoid work
+any longer would mean to subject myself to doctors and formally getting a sick
+leave. Given that I'm clearly non-infectious, this is not happening.
+
+Meanwhile, I somehow managed to implement the pretty-printers for datetime
+formatters.
