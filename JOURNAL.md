@@ -4205,3 +4205,63 @@ leave. Given that I'm clearly non-infectious, this is not happening.
 
 Meanwhile, I somehow managed to implement the pretty-printers for datetime
 formatters.
+
+
+2023-04-27
+----------
+
+So, I finished with the things I listed as the technical preliminaries for
+datetime formatters. I also remembered one more important thing: space-padding.
+It's not there in any shape or form yet. This is not a huge deal, as there are
+almost no formats that use space padding.
+
+There are interesting issues I uncovered with the `find` family of functions
+when I implemented them. Nothing major, and certainly not a problem in the happy
+case, but still worth deciding on.
+
+If we see a string like `25:12:34` in the text and are searching for `hh:mm`,
+should we recognize `25:12`? `12:34`? Both? None? This case is clear-cut: if
+searching for a `ValueBag` (which, by design, does not do any input validation),
+`25:12` should be found, whereas `12:34` should not, since `25` is clearly the
+leading component here. If searching for a `LocalTime`, then not finding
+anything is the proper solution.
+
+If we generalize this case to a rule, it will be this:
+* Search for strings matching the pattern.
+* If a string also forms a valid instance, it's a match, and the part of the
+  string that matched should be skipped: we don't want to reinterpret it anew.
+* If the string *does not* form a valid instance, it's not a match (though
+  whether or not we do input validation depends on the caller), but we skip
+  it anyway.
+
+With the case of `hh:mm`, it's clearly the way to go. If we can't consider the
+leading component of a series like `A:B:C` to be the hours, then the whole
+series is unlikely to be the local time.
+
+However, are we losing anything valuable with such rules by skipping over
+matched-but-invalid strings?
+
+Consider `mm/dd`. If we have `2018/07/05`, could we lose `07/05`? We actually
+could not, because `2018` does not match the pattern `mm` itself. Each field has
+the corresponding maximum length (where applicable). I've seen local times with
+more than 24 hours, but they were all less then 48 hours; I've seen 40 as the
+day-of-month, but never something larger than 100; I think it is completely
+sensible to limit the field length even for non-resolved datetimes.
+
+On the other hand, if we were looking for `mm/yyyy` and got `05/07/2018`, we
+also wouldn't lose `07/2018`, because `07` doesn't match the `yyyy` field due to
+the mandatory four-character lower bound.
+
+If we were looking for `m/y` and got `05/07/2018`, we would grab `m = 05`,
+`y = 07` and leave, even though it's not correct, but with such format, I don't
+think there's an obligation for us to deal sensibly with such formats.
+Garbage in, garbage out.
+
+I can't really think of a real format + a real input that would lead to
+undesirable results. There's the issue that `|` is novel and was not yet
+attempted, so we do not know what expectations and hopes people would place on
+it. Maybe someone would want to parse a format like `mm/(yyyy|y)` and expect it
+to, I don't know, first try searching for `mm/yyyy` everywhere and only attempt
+`mm/y` on the portions of the string without matches. No idea. This would be
+neat though! Can't think of a reason to implement such behavior, unfortunately,
+or even to think it through.
