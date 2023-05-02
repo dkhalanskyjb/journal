@@ -4265,3 +4265,20 @@ to, I don't know, first try searching for `mm/yyyy` everywhere and only attempt
 `mm/y` on the portions of the string without matches. No idea. This would be
 neat though! Can't think of a reason to implement such behavior, unfortunately,
 or even to think it through.
+
+
+2023-02-05
+----------
+
+The week promises to be tricky. I just started out, but already has IDEA spoiled
+my day by hanging each time I try to inline something. Can't I rely on *any*
+behavior with this IDE? Inlining, as they implemented it, ignoring side effects
+and such, is the simplest thing to do. No idea who's to blame, but on this
+occasion, I can be *sure* it's not me, and I'm displeased.
+
+What's going on? It hanged even when I just tried to type something.
+
+Everything's fine with my filesystem, I think. I successfully edited the file
+in Vim.
+
+Ok, after `pkill -kill java`, I manage to type successfully.
