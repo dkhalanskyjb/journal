@@ -4267,7 +4267,7 @@ neat though! Can't think of a reason to implement such behavior, unfortunately,
 or even to think it through.
 
 
-2023-02-05
+2023-05-02
 ----------
 
 The week promises to be tricky. I just started out, but already has IDEA spoiled
@@ -4282,3 +4282,71 @@ Everything's fine with my filesystem, I think. I successfully edited the file
 in Vim.
 
 Ok, after `pkill -kill java`, I manage to type successfully.
+
+
+2023-05-03
+----------
+
+Freezes become more common for some reason. Just now, the IDE freezed for
+ten minutes when I asked it to copy a reference to a thing to my clipboard.
+
+
+2023-05-04
+----------
+
+Once again messed up the dates. Fixed.
+Also, today, the IDE freezes every ten minutes of use. One more day of this,
+and I'll have to look into it.
+
+So, not much interesting happened this week. After the marathon of implementing
+the datetime formatting, I took it slow and mostly reviewed PRs and replied to
+user inquiries, thinking about what to do next.
+
+Today, a sign from the above told me what to focus on: fix a couple of the
+remaining warts in the test module of coroutines. A user on the Kotlin Slack
+channel asked yet another time how to collect all `SharedFlow` emissions
+without conflation in the sad case when the emissions themselves happen in
+an unconfined dispatcher. The answer is, due to the event loop, this is
+difficult.
+
+I strongly suspect that not having the option to disable the event loop is a
+mistake. I'll probably gather some evidence to that effect and call upon a
+design meeting.
+
+However, with the test module, a **true** unconfined dispatcher is not
+actually required in most cases. What is needed is for me to fix
+<https://github.com/Kotlin/kotlinx.coroutines/issues/3298>. This way, most
+uses of the unconfined dispatcher will not actually happen. There's no one
+else to fix this, after all.
+
+So, here's the issue: it's not clear at all what the "correct context" would
+be where dispatches are not needed in the case of
+`setMain(StandardTestDispatcher)`. If we just say that being in the main test
+thread means that dispatches are not needed, all kinds of issues will
+surface: for example, mocking `Dispatchers.IO` or `Dispatchers.Default` with the
+test dispatcher will cause inline execution of tasks passed to
+`Dispatchers.Main.immediate`.
+
+Important points:
+* The platform-specific implementations of the event loop.
+  Maybe, if I were to replicate the logic of "we're actually in the event loop"
+  to mean "we're actually dispatched by the mocked `Dispatchers.Main`", it would
+  be an important piece of the equation.
+* Maybe <https://github.com/Kotlin/kotlinx.coroutines/issues/3326> is the key.
+  In essence, `ThreadContextElement` is make-believe thread-specific state
+  spanning across threads: keeping the thread-local state available across
+  thread switches in a coroutine. Yeah, well, no, it doesn't seem relevant now
+  that I think about it: when switching execution to a different thread, we
+  *do* most likely want not to consider ourselves to be executing in the
+  `Dispatchers.Main` anymore.
+* The event loop can already bite us when mocking `Dispatchers.IO`:
+  ```kotlin
+  launch(Dispatchers.Unconfined) {
+    launch(Dispatchers.IO) {
+      launch(Dispatchers.Unconfined) {
+        println("Should be printed second")
+      }
+      println("Should be printed first")
+    }
+  }
+  ```
