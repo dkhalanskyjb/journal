@@ -4350,3 +4350,54 @@ Important points:
     }
   }
   ```
+
+2023-05-08
+----------
+
+So, the 1.7.0 release of the coroutines library was published last Friday, and
+there's breakage in the `kotlinx-coroutines-test` module, for whch I'm
+responsible.
+
+Initially, we learned about <https://github.com/Kotlin/kotlinx.coroutines/issues/3673>
+when we published the "beta" release of 1.7.0. The gist of it is, some library
+depended on `runTest`, and some people depended on *that* library transitively.
+We introduced a source-compatible but binary-incompatible change in 1.7.0-Beta,
+which caused all the users of *that* library to observe build failures when they
+ugraded to the new coroutines version.
+
+I thought I fixed the issue in 1.7.0-RC ("release candidate") by introducing a
+fake stub for binary compatibility. The fix was flawed and didn't actually fix
+anything, but no one complained. So, we released 1.7.0 with the same faulty fix.
+
+Now that the release is out, we should evaluate the impact that the issue has.
+
+First of all, "that library" is a widely-used test artifact for Android's
+version of the widely used Compose framework:
+<https://androidx.tech/artifacts/compose.ui/ui-test-junit4/1.5.0-alpha03-source/androidx/compose/ui/test/ComposeUiTest.android.kt.html>
+This is the source code for the latest release of that library.
+
+Second point:
+**many** people use that library: <https://grep.app/search?q=ui-test-junit4>,
+<https://github.com/search?q=ui-test-junit4&type=code>.
+
+Third: it doesn't look like we can expect a release of that library that depends
+on the latest test framework anytime soon. Why do I think that? Well, looking at
+the latest source code, I see use of lots of deprecated API. Even the
+non-deprecated API is not used the way it should be. I think it would take them
+quite a bit of time to fix their code so that it even compiles.
+
+Of course, given the scope of the breakage, they could concievably just add
+`@Suppress` and push out a release, but I don't think they will. After all, they
+have no stake in the latest update of the coroutines library being widely
+adopted and can take their time. Nobody will migrate from their elaborate
+contraption just because it broke because of them using API where we didn't
+promise any stability.
+
+
+Right now, to remind myself that there's life outside the datetime formatting,
+I'm going on the Odyssey of reading through the open issues on the coroutines
+tracker:
+<https://github.com/Kotlin/kotlinx.coroutines/issues?page=10&q=is%3Aissue+is%3Aopen>
+
+I've done it already, but I think I should do it once more with the newfound
+insights. Maybe I'll see some low-hanging fruit.
