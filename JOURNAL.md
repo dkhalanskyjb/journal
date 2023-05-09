@@ -4401,3 +4401,19 @@ tracker:
 
 I've done it already, but I think I should do it once more with the newfound
 insights. Maybe I'll see some low-hanging fruit.
+
+2023-05-09
+----------
+
+Spent some time wrapping my head around infinities in the comment section of
+<https://github.com/Kotlin/kotlinx-datetime/pull/271>.
+
+Reading through the issues one at a time. I think I'll publish a separate file
+in this repository with my takes on those issues. Sometimes, I may publish those
+takes to the comments directly under the issues, but most of the time, I don't
+think my understanding could help the discussion a lot.
+
+Meanwhile, I'm also browsing through the coroutine code and fixing things here
+and there, like
+* <https://github.com/Kotlin/kotlinx.coroutines/pull/3747>
+* <https://github.com/Kotlin/kotlinx.coroutines/pull/3746>
