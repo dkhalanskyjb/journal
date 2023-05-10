@@ -4417,3 +4417,21 @@ Meanwhile, I'm also browsing through the coroutine code and fixing things here
 and there, like
 * <https://github.com/Kotlin/kotlinx.coroutines/pull/3747>
 * <https://github.com/Kotlin/kotlinx.coroutines/pull/3746>
+
+
+2023-05-10
+----------
+
+A thought.
+
+So, here I have a bunch of documents that are actually useful. However, they are
+not in any repository, because they are my personal notes and not some
+production-quality docs. I really don't have the capacity to prettify them.
+Things change too quickly, the reasoning becomes outdated. But *I* do have all
+the context and will be able to tell if the information is outdated. Also, *I*
+am the main user of these notes.
+
+Well, why not just publish them here?
+It's not like they are some kind of a secret, but they *are* useful to me, and
+publishing them here would make everything less disastrous were my SSD to die,
+for example.
