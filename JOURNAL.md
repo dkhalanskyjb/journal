@@ -4435,3 +4435,255 @@ Well, why not just publish them here?
 It's not like they are some kind of a secret, but they *are* useful to me, and
 publishing them here would make everything less disastrous were my SSD to die,
 for example.
+
+2023-05-12
+----------
+
+Looking at <https://github.com/Kotlin/kotlinx.coroutines/issues/3673> closely.
+If I don't find a workaround, we'll have to publish a new release, preferably
+today.
+
+<https://github.com/Kotlin/kotlinx.coroutines/issues/3673#issuecomment-1537441738>
+this guy helpfully provided their code where the issue reproduces. Let's
+try some things.
+
+For example, <https://github.com/Kotlin/kotlinx.coroutines/pull/3742#issuecomment-1544320961>
+this approach initially confused me greatly: how would this work? However,
+admittedly, I don't know much about how linking happens in Java. What if you
+can add a file with `package kotlinx.coroutines.test`, and it will know to link
+properly?
+
+Well, it's unlikely. The specific method called is in the `TestBuildersKt`
+class, so you'd have to have a class with a conflicting name, which will
+certainly not work correctly, even if it is allowed somehow: that
+`TestBuildersKt` won't have any of the other methods that it should. What was
+I even thinking.
+
+Ok, I published the coroutines patch locally. Let's look if the reproducers
+start to pass.
+Let's try this one: <https://github.com/sebaslogen/resaca/tree/uptade-coroutines-1.7.0>
+
+Before: `38 tests  37  failures`
+After: `38 tests  22  failures`, and none of them is a "method not found."
+Is this success?
+
+Not sure.
+
+Let's try another one: <https://github.com/alexvanyo/composelife/pull/838>
+
+I can't even build it.
+
+```
+  To build this project, accept the SDK license agreements and install the missing components using the Android Studio SDK Manager.
+  All licenses can be accepted using the sdkmanager command line tool:
+  sdkmanager.bat --licenses
+  Or, to transfer the license agreements from one workstation to another, see https://developer.android.com/studio/intro/update.html#download-with-gradle
+```
+
+Thank you very much, but I'm using Linux, `sdkmanager.bat` won't work.
+Will `~/Android/Sdk/tools/bin/sdkmanager --licenses` do what I want?
+
+```
+Exception in thread "main" java.lang.NoClassDefFoundError: javax/xml/bind/annotation/XmlSchema
+	at com.android.repository.api.SchemaModule$SchemaModuleVersion.<init>(SchemaModule.java:156)
+	at com.android.repository.api.SchemaModule.<init>(SchemaModule.java:75)
+	at com.android.sdklib.repository.AndroidSdkHandler.<clinit>(AndroidSdkHandler.java:81)
+	at com.android.sdklib.tool.sdkmanager.SdkManagerCli.main(SdkManagerCli.java:73)
+	at com.android.sdklib.tool.sdkmanager.SdkManagerCli.main(SdkManagerCli.java:48)
+Caused by: java.lang.ClassNotFoundException: javax.xml.bind.annotation.XmlSchema
+	at java.base/jdk.internal.loader.BuiltinClassLoader.loadClass(BuiltinClassLoader.java:641)
+	at java.base/jdk.internal.loader.ClassLoaders$AppClassLoader.loadClass(ClassLoaders.java:188)
+	at java.base/java.lang.ClassLoader.loadClass(ClassLoader.java:520)
+	... 5 more
+```
+
+Nope. I guess the simplest solution is to launch Android Studio and click
+something there. If that fails (and it often does, I encounter "this AGP
+is incompatible with this Android Studio" more often than not when opening
+random projects), the proper solution is probably to set some class path
+somewhere.
+
+By the way, did you know that, in the Java ecosystem, everything **just works**,
+you simply download the JAR, run Java, and boom, production, enterprise,
+financial industry just spring out from your screen in full 3D with fancy
+shading? After you try it once, you can't settle for anything less!
+
+Ok, while `composelife` is being indexed (or whatever), let's do some work.
+
+So, the datetime formatting.
+
+I was thinking a bit about how to properly implement space-padding. Seems fairly
+simple, actually...
+
+Oh.
+
+> The project is using an incompatible version (AGP 8.0.0) of the Android Gradle plugin. Latest supported version is AGP 8.0.0-alpha02
+
+Well, okay, I guess. Just as I expected. Hope it'll still allow me to click the
+license thing. Except there's no prompt for me to click anything.
+Let's hope that while Android Studio is open, the license gets accepted
+automatically... it does! Now the tests in my console run successfully.
+
+Well, "successfully" is stretching it, the tests do fail, after all.
+7 tests out of 809 (wow, that's a shockingly large number!),
+with `NoSuchMethodError`.
+
+Now, let's switch to my locally-published build...
+
+```
+Configuration cache state could not be cached: field `left` of
+`org.gradle.configurationcache.serialization.codecs.SubtractingFileCollectionSpec`
+bean found in field `provider` of
+`org.gradle.configurationcache.serialization.codecs.ProviderBackedFileCollectionSpec`
+bean found in field `element` of `java.util.Collections$SingletonList` bean
+found in field `elements` of
+`org.gradle.configurationcache.serialization.codecs.ResolutionBackedFileCollectionSpec`
+bean found in field `__classpathSnapshot__` of
+`org.jetbrains.kotlin.gradle.tasks.KotlinCompile$ClasspathSnapshotProperties`
+bean found in field `__classpathSnapshotProperties__` of task
+`:dispatchers:kaptGenerateStubsDebugKotlinAndroid` of type
+`org.jetbrains.kotlin.gradle.internal.KaptGenerateStubsTask`: error writing
+value of type
+'org.gradle.api.internal.file.collections.DefaultConfigurableFileCollection'
+> Could not resolve all files for configuration ':dispatchers:debugCompileClasspath'.
+   > Could not find org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.0-SNAPSHOT.
+     Required by:
+         project :dispatchers
+   > Could not find org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.0-SNAPSHOT.
+     Required by:
+         project :dispatchers
+```
+
+Look at this word soup, just to say that I forgot to add `mavenLocal` to the
+list of repositories. Strong C++ template error influences, I see; learning from
+the best, as is proper.
+
+Funnily enough, I was not one minute in the Android Studio
+when I found some bug: clicking on links doesn't open my browser.
+
+This project has 4 places where `mavenCentral` is listed, by the way, and
+adding `mavenLocal` to 3/4 of them does nothing.
+
+Finally, success.
+
+
+Ok, so, wrote the changelog and proposed a release:
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3752>
+
+As I was saying, **space padding**.
+
+In most places I've looked, space-padding was implemented in a way that I don't
+approve of (footnote: when writing this, I subvocalized "approve of" and felt
+mightily weird writing "of" given that it sounds nothing like the combination of
+these letters; the [ghoti](https://en.wikipedia.org/wiki/Ghoti) of English
+strikes again). Namely, we have zero padding or space padding.
+
+Java does this right:
+> [Pad modifier `p`] modifies the pattern that immediately follows to be padded
+> with spaces. The pad width is determined by the number of pattern letters.
+> This is the same as calling DateTimeFormatterBuilder.padNext(int).
+
+For example,
+```kotlin
+DateTimeFormatter.ofPattern("ppppMM");
+```
+would output today `  05`. Two-digit months, with four-digit padding before.
+
+I don't like *the syntax* though, as it goes against the grain of "when
+formatting, the letters in the pattern get replaced by the desired contents".
+
+Like,
+```
+yyyy-MM-dd, HH:mm
+2023-05-12, 12:01
+```
+See? One-to-one mapping, except when we have to escape some characters, but
+then, what can you really do?
+
+So, I think a better choice would be to space-pad to the number of *p* letters
+**plus** the length of the directive being padded. For example,
+```
+yyyy pM/dd, pH:mm
+2023  5/12, 12:01
+```
+
+Better yet, the syntax could be like in Go:
+```
+yyyy _M/dd, _H:mm
+2023  5/12, 12:01
+```
+Space is too useful as a proper text literal to give it up for such an uncommon
+need.
+
+Now, how would one go about implementing this? The formatting part is clear: you
+format the thing to the right, calculate its length, prepend spaces as needed.
+Easy. Java decided to bury a trick there, though, by failing
+**during formatting** if the length of the result exceeds the padding.
+The docs <https://docs.oracle.com/en/java/javase/16/docs/api/java.base/java/time/format/DateTimeFormatterBuilder.html#padNext(int)>
+are a bit misleading here: it's said that the failure happens if "the pad
+width is too small," which can be interpreted as, "if the field can sensibly be
+bigger, this will be caught," whereas in fact, it means only the widths below 1.
+Is padding to one space sensible?.. I don't think it ever is.
+
+So, the way I think this should be done:
+* If the value has a defined maximum width larger than the provided padding,
+  fail on construction. For example... well, yeah, I can't think of any that
+  we have right now. For example, "day of the year, padded to two characters
+  with spaces" fits the bill, but we don't support days-of-year.
+* If the value doesn't have a maximum defined width, don't fail even if the
+  value overflows. Be nice. People don't want their log-formatting procedure to
+  crash if the system is in an incorrect state.
+  For example, if someone somehow obtained the year value of `15312` and we have
+  `___+y` as the format (pad to 5 characters, including the sign),
+  we'll just print `+15321`, oveflowing a bit.
+
+So, no runtime failures (unless someone constructs formatters on the fly with
+various parameters, but this just means they are on their own).
+I think it's a worthy goal.
+
+Regarding the parsing, I think the behavior is also clear: if the padding was
+overflown by too large a thing, not a big deal. If it was underflown, fail.
+Don't like it? Define your parser separately, without the padding directive.
+You most likely already do. If you want to **allow** padding while parsing but
+not mandate it, there's always the `(m| m)` pattern.
+
+The question is, how does it fit into the paradigm of parsers as sequences of
+commands. Preliminarily, I think it should be solved by paired commands of
+"checkpoint" placed before the first directive, with the function of remembering
+the current position and skipping any spaces, and "finish", where the "finish"
+command queries the position of the earlier checkpoint and checks the resulting
+width.
+
+The question is, of course, what to do with things like
+```kotlin
+padWithSpacesTo(10) {
+  padWithSpacesTo(5) {
+    appendYear()
+  }
+  appendLiteral("-")
+  appendMonth()
+}
+```
+If we format something with this, we get `   2023-05`. 10 characters total,
+5 characters for the year.
+
+The proper way in this case, I believe, is to say screw this, this is not
+allowed. I *am* prompted to say that this is nonsensical, but it's not:
+consider
+```kotlin
+padWithSpacesTo(10) {
+  padWithSpacesTo(5) {
+    appendYear()
+  }
+  appendLiteral(" ")
+  appendTimeZone()
+}
+```
+So, we can have strings like `  2023 UTC`, but we also can have strings like
+` 2023 Europe/Berlin`. Here, the padding for years actually has an effect of
+its own.
+
+Hey, wait, this seemingly unimportant detail exposes a problem with my initial
+plan. If the checkpoints just skip the spaces, then we can get erroneous
+results: `      05` would be considered acceptable for `_m`, for example.
+Now what do we do?
