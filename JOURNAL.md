@@ -4687,3 +4687,24 @@ Hey, wait, this seemingly unimportant detail exposes a problem with my initial
 plan. If the checkpoints just skip the spaces, then we can get erroneous
 results: `      05` would be considered acceptable for `_m`, for example.
 Now what do we do?
+
+
+Fought with IDEA for something like ten minutes to make it show me the bytecode
+for `kotlinx-coroutines-test:1.6.4`. That's one of the main reasons I dislike
+the "I" in the "IDE": when you want some specific functionality, you can't just
+access it, you need to determine how it's "I"ntegrated with everything else.
+Also, no idea which attempts to view the JAR failed because of me and which
+because of bugs.
+
+
+Sure enough, my gut feeling that two instances of fixing something shouldn't be
+enough paid off, but this time before we published one more embarassing release.
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3753> This time, the code is
+just the Kotlin version of what was implicitly compiled, there's very little
+potential of something going wrong. Frankly, this last edit was not even
+strictly needed, so there probably wouldn't be another embarassing release
+anyway. I added rationale throughout the PRs so that the wide public doesn't
+think we're some clueless buffoons. Not that I'm saying I'm not, especially when
+it comes to Kotlin, but we do need some credibility in the public's eyes.
+
+In any case, this is educational. Need to focus better.
