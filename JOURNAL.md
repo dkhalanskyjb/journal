@@ -4708,3 +4708,35 @@ think we're some clueless buffoons. Not that I'm saying I'm not, especially when
 it comes to Kotlin, but we do need some credibility in the public's eyes.
 
 In any case, this is educational. Need to focus better.
+
+
+In the meantime, I was asked about truncating `LocalDateTime` to the given
+`ChronoUnit`. I think I should repost the answer here as well, so that it's not
+lost deeply in Slack. Maybe I'll need it someday.
+
+```kotlin
+public fun LocalTime.truncateTo(unit: DateTimeUnit.TimeBased): LocalTime =
+    LocalTime.fromNanosecondOfDay(toNanosecondOfDay().let { it - it % unit.nanoseconds })
+
+public fun LocalDateTime.truncateTo(unit: DateTimeUnit.TimeBased): LocalDateTime =
+    LocalDateTime(date, time.truncateTo(unit))
+
+@Test
+fun testTruncation() {
+    val localTime = LocalTime(1, 2, 3, 456789123)
+    assertEquals(LocalTime(1, 2, 3, 456789123), localTime.truncateTo(DateTimeUnit.NANOSECOND))
+    assertEquals(LocalTime(1, 2, 3, 456789000), localTime.truncateTo(DateTimeUnit.MICROSECOND))
+    assertEquals(LocalTime(1, 2, 3, 456000000), localTime.truncateTo(DateTimeUnit.MILLISECOND))
+    assertEquals(LocalTime(1, 2, 3, 0), localTime.truncateTo(DateTimeUnit.SECOND))
+    assertEquals(LocalTime(1, 2, 0, 0), localTime.truncateTo(DateTimeUnit.MINUTE))
+    assertEquals(LocalTime(1, 0, 0, 0), localTime.truncateTo(DateTimeUnit.HOUR))
+}
+```
+
+Finally published the release 1.7.1, and from my testing, it does properly
+include the fix.
+
+Here's code that checks whether the artifacts are at Maven already:
+```sh
+version=1.7.1; while curl https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-test/$version/ | grep -q '404 Not Found'; do sleep 1; done; notify-send "Hey, they published it"
+```

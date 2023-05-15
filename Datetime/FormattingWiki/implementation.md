@@ -306,3 +306,172 @@ https://docs.oracle.com/en/java/javase/16/docs/api/java.base/java/time/format/Da
 syntax) `"[[yyyy/]M/dd][[ ]h:m[:s][.SSS] a][[ ]H:m[:s][.SSS]]"`.
 Here, `[]` denotes an optional section, which means, for formatting, that it
 should be output if the field is present in the passed object.
+
+### Field containers
+
+`FieldSpec` requires that the accessors for fields are read-write. However,
+the values we normally operate on are immutable, like `LocalDate`.
+
+To support mutability, we introduce separate internal interfaces...
+
+```kotlin
+internal interface DateFieldContainer {
+    var year: Int?
+    var monthNumber: Int?
+    var dayOfMonth: Int?
+    var isoDayOfWeek: Int?
+}
+
+// internal interface DateTimeFieldContainer: DateFieldContainer, TimeFieldContainer
+```
+
+... and their implementations:
+
+```kotlin
+internal class IncompleteLocalDate(
+    override var year: Int? = null,
+    override var monthNumber: Int? = null,
+    override var dayOfMonth: Int? = null,
+    override var isoDayOfWeek: Int? = null
+) : DateFieldContainer
+```
+
+This way, we can define a `month: FieldSpec<DateFieldContainer, Int>` field that
+works with anything that can store a date.
+
+### Parsers and formatters
+
+The engines for parsing and formatting are separate and independent.
+
+Formatters have the following API:
+```kotlin
+internal sealed interface FormatterStructure<in T> {
+    fun format(obj: T, builder: StringBuilder, minusNotRequired: Boolean = false)
+}
+```
+
+Here, the result of formatting is appended to the `builder`. `minusNotRequired`
+controls whether the minus sign should be output for values that are negative.
+For example, when formatting `-2 days -1 hour` as `-P2DT1H`, `minusNotRequired`
+will be set to `true` for `P2D1H`.
+
+Parsers expose this API:
+```kotlin
+internal class Parser<Output : Copyable<Output>> {
+    fun match(input: CharSequence, startIndex: Int = 0): Output
+
+    fun<T> find(input: CharSequence, startIndex: Int = 0, transform: (Output) -> T?): T?
+
+    fun<T> findAll(input: CharSequence, startIndex: Int = 0, transform: (Output) -> T?): List<T>
+}
+```
+
+* `match` checks if the itput matches the parser rules fully.
+* `findAll` goes through all indices, and for each index, attempts to parse
+  the longest possible string such that it satisfies the parser rules and
+  `transform` returns a valid value.
+* `find` is an optimized version of `findAll` composed with `firstOrNull`.
+
+The need for `transform` is explained directly below.
+
+### Parsing and resolution
+
+Given the rules `yyyy-mm-dd` and a string `2023-02-30`, should we parse it?
+The value is clearly erroneous, but it also clearly satisfies the required
+pattern.
+
+*Sometimes we do want to parse it, sometimes we don't*.
+
+When we only want to work with well-formed values and fail eagerly in case we
+encounter something strange, `2023-02-30` is a reason to crash the program.
+However, when trying to leniently parse the output from a system that is known
+to produce wrong values in some consistent manner, we still want to access the
+parsed values and do something with them.
+
+The solution for this issue is to avoid value validity checks at the parsing
+time and delegate them to a separate resolution stage.
+
+`LocalDate.find("yyyy-mm-dd")` can only return valid `LocalDate` values.
+For this reason, it will call `find` on an `Parser<IncompleteLocalDate>` with
+`transform` set to the `(IncompleteLocalDate) -> LocalDate` fallible conversion
+function. Thus, in the text `"2023-02-30" is an invalid date, "2023-02-28" is
+probably what was meant`, `find` will return `2023-02-28`.
+
+However, we also have `ValueBag`, which is a formless bunch of datetime values
+without validity checks. So, `ValueBag.find("yyyy-mm-dd")` on that text will
+find `2023-02-30`, leaving the decisions about how to perform value resolution
+to the end user.
+
+### Building formats
+
+There are some shared internal concepts that help with format construction.
+
+First, a simplified version without any format string support:
+
+```kotlin
+internal class AppendableFormatStructure<T>(
+    spec: BuilderSpec<T>
+) {
+    fun add(format: FormatStructure<T>)
+
+    fun build(): ConcatenatedFormatStructure<T>
+
+    fun createSibling(): AppendableFormatStructure<T>
+}
+```
+
+Here, `FormatStructure` has the `<in T>` type argument. This means that, if
+`T` implements `DateFieldContainer`, any `FormatStructure<DateFieldContainer>`
+is also a `FormatStructure<T>`. `AppendableFormatStructure` does some tricks
+with variance to make this idea work.
+* `add` appends any `FormatStructure<T>` to the end of the format,
+* `build` returns the accumulated format,
+* `createSibling` creates a new, empty `AppendableFormatStructure<T>`.
+
+Format string support adds some new challenges. As implemented, format strings
+allow treating sequences of letters as field format directives: for example,
+treating the string `yyyy-mm-dd` as a sequence of directives "4-digit year,
+a dash, 2-digit month, a dash, 2-digit day." Additionally, they allow separating
+parts of a format into sections depending on the part of the data structure that
+they work with: for example, the string `ld<yyyy-mm-dd> lt<hh:mm:ss>` describes
+a format "4-digit year, a dash, 2-digit month, a dash, 2-digit day, a space,
+and 2-digit hour, minute, and second, separated by colons." Here, `ld` and
+`lt` describe that what's described inside is a local date format and a local
+time format, correspondingly. Because of this, the same letter `m` can be used
+to mean months in one context, minutes-of-hour in another, minutes of UTC offset
+in yet another, not shown here, and also months and minutes in date-time
+periods.
+
+```kotlin
+internal abstract class BuilderSpec<in T>(
+    val subBuilders: Map<String, BuilderSpec<T>>,
+    val formats: Map<Char, (Int) -> FormatStructure<T>>,
+)
+
+internal class AppendableFormatStructure<T>(
+    spec: BuilderSpec<T>
+) {
+    // New functions
+
+    fun formatFromSubBuilder(
+        name: String,
+        block: AppendableFormatStructure<*>.() -> Unit
+    ): FormatStructure<T>
+
+    fun formatFromDirective(letter: Char, length: Int): FormatStructure<T>
+
+    // Already covered
+
+    fun add(format: FormatStructure<T>)
+
+    fun build(): ConcatenatedFormatStructure<T>
+
+    fun createSibling(): AppendableFormatStructure<T>
+}
+```
+
+`BuilderSpec` specifies the behavior of format strings.
+`subBuilders` describes how strings like `ld` and `lt` map to the sub-builders,
+and `formats` explain which formats `yyyy` and `mm` should be treated.
+`formatFromSubBuilder` and `formatFromDirective` implement the corresponding
+logic.
