@@ -133,6 +133,9 @@ internal interface FieldSign<in Target> {
 
 ```
 
+Examples: `val month: FieldSpec<DateFieldContainer, Int>`,
+`val timeZoneId: FieldSpec<ValueBagContents, String>`.
+
 `Accessor<A, T>` is a pair of functions: the getter `(A) -> T?` and the setter
 `(A, T) -> Unit`. The getter may return `null` because the values being parsed
 and formatted are (potentially) incomplete.
@@ -185,6 +188,8 @@ internal interface FieldFormatDirective<in Target> {
 }
 ```
 
+Example: `val twoDigitMonth: FieldFormatDirective<DateFieldContainer>`.
+
 ### Formats
 
 Examples: ISO 8601 date format, "4-digit years, then 2-digit months, then
@@ -234,6 +239,8 @@ internal class AlternativesFormatStructure<in T>(
     val formats: List<ConcatenatedFormatStructure<T>>
 ) : NonConcatenatedFormatStructure<T>
 ```
+
+Example: `val yyyymmdd: FormatStructure<DateFieldContainer>`.
 
 These are probably self-explanatory:
 * `ConcatenatedFormatStructure` places the subformats one after another.
@@ -350,6 +357,8 @@ internal sealed interface FormatterStructure<in T> {
 }
 ```
 
+Example: `FormatterStructure<DateFieldContainer>`.
+
 Here, the result of formatting is appended to the `builder`. `minusNotRequired`
 controls whether the minus sign should be output for values that are negative.
 For example, when formatting `-2 days -1 hour` as `-P2DT1H`, `minusNotRequired`
@@ -365,6 +374,8 @@ internal class Parser<Output : Copyable<Output>> {
     fun<T> findAll(input: CharSequence, startIndex: Int = 0, transform: (Output) -> T?): List<T>
 }
 ```
+
+Example: `yyyymmdd: Parser<IncompleteLocalDate>`.
 
 * `match` checks if the itput matches the parser rules fully.
 * `findAll` goes through all indices, and for each index, attempts to parse
@@ -419,6 +430,8 @@ internal class AppendableFormatStructure<T>(
     fun createSibling(): AppendableFormatStructure<T>
 }
 ```
+
+Example: `AppendableFormatStructure<IncompleteLocalDate>`.
 
 Here, `FormatStructure` has the `<in T>` type argument. This means that, if
 `T` implements `DateFieldContainer`, any `FormatStructure<DateFieldContainer>`
