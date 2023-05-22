@@ -488,3 +488,116 @@ internal class AppendableFormatStructure<T>(
 and `formats` explain which formats `yyyy` and `mm` should be treated.
 `formatFromSubBuilder` and `formatFromDirective` implement the corresponding
 logic.
+
+Public concepts
+---------------
+
+### Formats
+
+For each thing we want to have formats for, there is a separate format class and
+a number of extension functions to streamline working with formats:
+
+```kotlin
+public class LocalDateFormat : Format<LocalDate>
+
+public fun LocalDate.format(formatString: String): String
+
+public fun LocalDate.format(format: LocalDateFormat): String
+
+public fun LocalDate.Companion.parse(input: String, formatString: String): LocalDate
+
+public fun LocalDate.Companion.parse(input: String, format: LocalDateFormat): LocalDate
+```
+
+The `Format` interface exposes the functionality of parsers and formatters:
+
+```kotlin
+public interface Format<T> {
+    public fun format(value: T): String
+
+    public fun parse(input: CharSequence): T
+
+    public fun find(input: CharSequence, startIndex: Int = 0): T?
+
+    public fun findAll(input: CharSequence, startIndex: Int = 0): List<T>
+}
+```
+
+### Creating formats
+
+```kotlin
+public class LocalDateFormat private constructor: Format<LocalDate> {
+    public companion object {
+        public fun build(block: DateFormatBuilder.() -> Unit): LocalDateFormat
+
+        public fun fromFormatString(formatString: String): LocalDateFormat
+
+        public val ISO: LocalDateFormat
+    }
+}
+```
+
+There are predefined formats (like ISO), ability to construct formats from
+format strings, and also the builder API.
+
+### Format "builder" API
+
+```kotlin
+public interface DateFormatBuilderFields {
+    public fun appendYear(minDigits: Int = 1, outputPlusOnExceededPadding: Boolean = false)
+    public fun appendMonthNumber(minLength: Int = 1)
+    public fun appendMonthName(names: List<String>)
+    public fun appendDayOfMonth(minLength: Int = 1)
+    public fun appendDayOfWeek(names: List<String>)
+}
+
+@DateTimeBuilder
+public interface DateFormatBuilder : DateFormatBuilderFields, FormatBuilder<DateFormatBuilder>
+```
+
+The `FormatBuilder<T>` interface is defined as follows:
+```kotlin
+@DslMarker
+public annotation class DateTimeBuilder
+
+@DateTimeBuilder
+public interface FormatBuilder<out Self> {
+    /**
+     * Example:
+     * ```
+     * appendAlternatives({
+     *   appendLiteral("Z")
+     * }, {
+     *   appendOffsetHours()
+     *   appendOptional {
+     *     appendLiteral(":")
+     *     appendOffsetMinutes()
+     *     appendOptional {
+     *       appendLiteral(":")
+     *       appendOffsetSeconds()
+     *     }
+     *   }
+     * })
+     * ```
+     */
+    public fun appendAlternatives(vararg blocks: Self.() -> Unit)
+
+    public fun appendLiteral(string: String)
+
+    public fun appendFormatString(formatString: String)
+}
+
+/**
+ * Example:
+ * ```
+ * appendHours()
+ * appendLiteral(":")
+ * appendMinutes()
+ * appendOptional {
+ *   appendLiteral(":")
+ *   appendSeconds()
+ * }
+ * ```
+ */
+public fun <Self> FormatBuilder<Self>.appendOptional(block: Self.() -> Unit): Unit
+```

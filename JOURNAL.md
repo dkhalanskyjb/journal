@@ -4740,3 +4740,61 @@ Here's code that checks whether the artifacts are at Maven already:
 ```sh
 version=1.7.1; while curl https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-test/$version/ | grep -q '404 Not Found'; do sleep 1; done; notify-send "Hey, they published it"
 ```
+
+2023-05-22
+----------
+
+With the datetime formatting being mostly feature-complete, all I have to do
+with it now is lead a series of internal design discussions regarding it. This
+is not a full-time job (thankfully, we don't have meetings all day), so I have
+plenty of time now to work on other things.
+
+Right now, I'm extending the Kotlin/Native implementations for time zones, and
+my immediate goal right now is to rewrite the Linux portion of it.
+I already tried my hand at rewriting the Windows implementation
+(<https://github.com/Kotlin/kotlinx-datetime/commit/cb9b0a91c4a1f148e5fbb7a13bd13ae47733f0d8>),
+but to no avail: unfortunately, in the Windows timezone database, the provided
+data is a bit broken: the "daylight savings time" in some cases starts before
+the standard time does, and this is just one assumption that was discovered by
+our tests. I can't be bothered to work around this with elaborate `if-else`
+chains.
+
+Of course, this work needs to be done, and there's no one but me to do it, so
+I will have to deal with this eventually. However, implementing Linux first will
+make this significantly easier. In order to implement Linux, I'll have to
+recreate the entire mechanism of how timezone rules are stored. Until now, we
+always relied on someone else to be the containers for timezone rules (Darwin's
+`NSTimeZone`, Windows's `DynamicTimeZoneInformation`, and the
+<https://github.com/HowardHinnant/date> library's `tzdb` on Linux) and queried
+them for the answers we needed, but this approach outlived itself: our needs are
+no longer fulfilled by just the information these containers provide. Except,
+funnily enough, on Linux. If the `date` library worked on iOS and Windows using
+the system time zone, we wouldn't even need to do anything except wrap the
+library and let it carry us to success.
+
+So, we *could* have left the Linux version intact, but:
+* We'll need to learn to parse IANA TZDB files anyway.
+* We'll need the mechanism for arbitrary timezone rules anyway in order to be
+  able to provide alternative timezone databases:
+  <https://github.com/Kotlin/kotlinx-datetime/issues/201>.
+
+... and that is basically all there is to the Linux implementation, actually.
+
+When we have the ability to work with arbitrary rules, it will be much easier to
+tame the Windows implementation: we'll only need to convert the obscure format
+that Windows uses to our rules, check that everything works, and throw away the
+Windows-specific timezone handling altogether, thus being free from the
+`if-else` pollution.
+
+For checking that everything works, maybe we could use the test suite for the
+`Temporal.ZonedDateTime` type, which is essentially just the test suite for
+datetime arithmetics as a whole in disguise:
+<https://github.com/tc39/proposal-temporal/blob/503c1edea7c81e11dde033fc94ecbdcdc83d171d/polyfill/test/zoneddatetime.mjs>.
+One of the authors
+<https://github.com/Kotlin/kotlinx-datetime/issues/163#issuecomment-1181368707>
+explicitly encouraged that we do it, and maybe we should.
+<https://github.com/tc39/proposal-temporal/blob/503c1edea7c81e11dde033fc94ecbdcdc83d171d/LICENSE>
+says, I think, that the code is essentially under the BSD license, which should
+be compatible with our Apache 2.0.
+
+
