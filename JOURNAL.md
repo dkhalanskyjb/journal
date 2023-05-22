@@ -4798,3 +4798,86 @@ says, I think, that the code is essentially under the BSD license, which should
 be compatible with our Apache 2.0.
 
 
+To implement the Linux version, I first need to understand what timezone rules
+are. Of course, essentially, each timezone is exactly a function
+`Instant -> UtcOffset` (or, equivalently, `Instant -> LocalDateTime`), but the
+specifics of how to encode it may be tricky. For one, there is the concept of
+periods when specific rules of DST switch were in effect, like "at 02:00 on the
+last Sunday of March." This is important because the last entry in the timezone
+database may be "in 1980, this rule was established," and this rule can be used
+for arbitrarily long. We can't just store a transition description for each
+year, there could be arbitrarily many of them.
+
+*Sure*, as a first approximation, we *could* do something like "generate and
+store all transitions for years 1970-2100." No one will expect the information
+about the year 2100 to be accurate, and there are literally no guarantees even
+in the timezone database itself about the timezone data accuracy for years
+before 1970. Maybe this is actually the way forward: have each timezone be a
+list of something like 200 `Instant` + `UtcOffset` values for each transition
+and just query them. 200 * (`Long` + `Int` + `Int`) is about 200 * 2 * 8 bytes,
+or 3 kB. The whole TZDB would then be less than a megabyte. Even if we take
+Java's inefficient memory layout into account, we still get something
+reasonable, and the implementation of all operations is completely
+straightforward.
+
+I think I saw some suspicious arrays in 310bp's implementation.
+Let's look at what they do at all.
+
+The `TzdbZoneRulesProvider.java` file seems to be the entry point I'm interested
+in. `org.threeten.bp.zone.TzdbZoneRulesProvider#loadData` is a function that
+reads the IANA TZDB file hidden in the resources. Looks like it doesn't parse
+the actual rules, it only reads the required number of bytes worth of rules
+and stores them as a byte array. Then,
+`org.threeten.bp.zone.TzdbZoneRulesProvider.Version#createRule` checks what's
+stored: `ZoneRules` or a byte array. If a byte array is stored, `ZoneRules` is
+obtained from it, and the byte array is replaced. Smart: this means avoiding the
+expensive parsing phase until the data for a specific region is requested.
+The way `ZoneRules` is obtained is by calling `org.threeten.bp.zone.Ser#read`,
+which, in turn, checks the first byte to see the type of the byte data and calls
+one of:
+* `StandardZoneRules.readExternal`
+* `ZoneOffsetTransition.readExternal`
+* `ZoneOffsetTransitionRule.readExternal`
+
+Wait, why? Only `StandardZoneRules` fits the bill here. This is very strange!
+If some other branch is successfully taken, then not only will `createRule`
+throw an exception, it will also overwrite the byte array with the
+newly-deserialized object... though that's okay, now that I think about it:
+it will throw the same exception every time anyway, being fully deterministic
+and operating on immutable data.
+
+Still, what we *want* is to skip a byte and call
+`StandardZoneRules.readExternal`. I don't get it. Oh well, it doesn't matter.
+What matters is, which format is this, anyway?
+
+During the compilation, *something* did output
+`./target/classes/org/threeten/bp/TZDB.dat` (not stored in git), and there is
+`./src/main/resources/org/threeten/bp/TZDB.dat` (stored in git), and they
+are the same.
+
+`git grep -F TZDB.dat` reveals:
+```
+src/main/java/org/threeten/bp/zone/TzdbZoneRulesCompiler.java:        File tzdbFile = new File(dstDir, "TZDB.dat");
+src/main/java/org/threeten/bp/zone/TzdbZoneRulesCompiler.java:            jos.putNextEntry(new ZipEntry("org/threeten/bp/TZDB.dat"));
+src/main/java/org/threeten/bp/zone/TzdbZoneRulesProvider.java:            Enumeration<URL> en = classLoader.getResources("org/threeten/bp/TZDB.dat");
+```
+
+Hello, two classes that are named deviously similar and look like just one
+class! (For those who are as clueless as me: yes, there are two files listed,
+one is "Compiler" and the other is "Provider").
+
+How is the "compiler" used? `README.md` sheds some light:
+
+```markdown
+#### Time-zone data
+The time-zone database is stored as a pre-compiled dat file that is included in the built jar.
+The version of the time-zone data used is stored within the dat file (near the start).
+Updating the time-zone database involves using the `TzdbZoneRulesCompiler` class
+and re-compiling the jar file.
+An automated CI job should help keep the time-zone data up to date.
+```
+
+Ok, so: 310bp has some unnamed format for timezone databases and compiles
+something to it. `.github/workflows/tzdbupdate.yml` explains what exactly
+gets compiled: <https://github.com/eggert/tz.git>. At some point, we'll need to
+recreate this process, most likely.
