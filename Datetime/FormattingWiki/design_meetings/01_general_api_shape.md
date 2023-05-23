@@ -156,15 +156,15 @@ Cons:
 ### Option 3: a generic class
 
 ```kotlin
-val format: Format<LocalTime> = kotlinx.datetime.Format<LocalTime>.build {
+// Requires some very nasty tricks for this syntax to work, and is non-extensible:
+val format = kotlinx.datetime.Format.build<LocalTime> {
   appendHour()
   literal(':')
   appendMinute()
 }
-// this `build` is an extension function on exactly `Format<LocalTime>`
 
-// Strange-looking alternative without the extension functions:
-// val format: Format<LocalTime> = kotlinx.datetime.LocalTime.buildFormat { }
+// Alternative that's extensible and sensibly implemented but looks odd:
+val format: Format<LocalTime> = kotlinx.datetime.LocalTime.buildFormat { }
 ```
 
 Pros:
@@ -178,11 +178,6 @@ Cons:
   like in Java.
 * If someone wants to parse vaguely structured data and only later interpret it
   as some specific data type, the type bounds can be a nuisance. 
-* To have good error messages, we would need to introduce a marker interface
-  like `TemporalFieldContainer` that `LocalDate`, `LocalTime`, `UtcOffset`, etc.
-  would have to implement, and have `class Format<T: TemporalFieldContainer>`.
-  Otherwise, `Format<Duration>.build` would unhelpfully fail with "can't resolve
-  `build`".
 
 ### Option 4: a separate format class for each field container
 
@@ -205,7 +200,7 @@ thing like `LocalDatePattern`.
 
 Pros:
 
-* Like the previous option, but also without any extension function trickery.
+* Like the previous option, but also without any trickery.
 * Each class can store the format constants that are applicable to it.
 
 Cons:
