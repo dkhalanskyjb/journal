@@ -467,3 +467,182 @@ Pro this option:
 > So, there's no avoiding these functions, as well as the duplication of
 > parameter names and forms. We'll go with this one for now, and will introduce
 > the API from option 1 only if there's some demand.
+
+
+The shape of the freeform data
+------------------------------
+
+There are needs to format or parse incomplete things or many things at once,
+like
+
+* `LocalDateTime` + `UtcOffset`,
+* Only the year and the month,
+* Month, day, and weekday.
+
+Additionally, there's are needs to parse malformed data.
+
+How to represent it?
+
+### Option 1: one class with all the values, but optionally
+
+We can introduce a huge class that serves as just a bunch of values related to
+dates and times:
+
+```kotlin
+/**
+ * A collection of date-time fields.
+ *
+ * Its main purpose is to provide support for complex date-time formats that don't correspond to any of the standard
+ * entities in the library.
+ *
+ * Accessing the fields of this class is not thread-safe.
+ * Make sure to apply proper synchronization if you are using a single instance from multiple threads.
+ */
+public class ValueBag internal constructor {
+    /**
+     * Writes the contents of the specified [localTime] to this [ValueBag].
+     * The [localTime] is written to the [hour], [minute], [second] and [nanosecond] fields.
+     *
+     * If any of the fields are already set, they will be overwritten.
+     */
+    public fun populateFrom(localTime: LocalTime) {
+        hour = localTime.hour
+        minute = localTime.minute
+        second = localTime.second
+        nanosecond = localTime.nanosecond
+    }
+
+    public fun populateFrom(localDate: LocalDate)
+    public fun populateFrom(localDateTime: LocalDateTime)
+    public fun populateFrom(utcOffset: UtcOffset)
+    public fun populateFrom(instant: Instant, offset: UtcOffset)
+
+    /** Returns the year component of the date. */
+    public var year: Int?
+
+    /** Returns the number-of-month (1..12) component of the date. */
+    public var monthNumber: Int?
+
+    /** Returns the month ([Month]) component of the date. */
+    public var month: Month?
+        get() = monthNumber?.let { Month(it) }
+        set(value) {
+            monthNumber = value?.number
+        }
+
+    public var dayOfMonth: Int?
+    public var dayOfWeek: DayOfWeek?
+    public var hour: Int? by contents.time::hour
+    public var minute: Int? by contents.time::minute
+    public var second: Int? by contents.time::second
+    public var nanosecond: Int? by contents.time::nanosecond
+    public var offsetIsNegative: Boolean? by contents.offset::isNegative
+    public var offsetTotalHours: Int? by contents.offset::totalHoursAbs
+    public var offsetMinutesOfHour: Int? by contents.offset::minutesOfHour
+    public var offsetSecondsOfMinute: Int? by contents.offset::secondsOfMinute
+    public var timeZoneId: String? by contents::timeZoneId
+
+    /**
+     * Builds a [UtcOffset] from the fields in this [ValueBag].
+     *
+     * This method uses the following fields:
+     * * [offsetTotalHours] (default value is 0)
+     * * [offsetMinutesOfHour] (default value is 0)
+     * * [offsetSecondsOfMinute] (default value is 0)
+     *
+     * Since all of these fields have default values, this method never fails.
+     */
+    public fun toUtcOffset(): UtcOffset
+    public fun toLocalDate(): LocalDate
+    public fun toLocalTime(): LocalTime
+    public fun toLocalDateTime(): LocalDateTime
+    public fun toInstantUsingUtcOffset(): Instant
+}
+```
+
+Examples of client code:
+```kotlin
+ValueBag().apply { populateFrom(localDateTime); populateFrom(offset) }
+  .format(ValueBag.Format.ISO_OFFSET_DATE_TIME)
+
+ValueBag.Format.fromFormatString("ld<yyyy-mm(|-dd)>")
+  .parse("2023-02")
+  .apply { dayOfMonth = dayOfMonth ?: 1 }
+  .toLocalDate()
+```
+
+An approach taken by Objective-C: <https://developer.apple.com/documentation/foundation/nsdatecomponents>
+`NSDateComponents` is an all-encompassing object containing all the existing
+fields.
+
+Pros:
+* Type-safe. One can't put an `Int` to the `timeZoneId` field.
+* It may look like a soup of values. However, `OffsetDateTime`, a thing we're
+  often asked about, has almost all of them, so this thing is about as complex
+  as it should be.
+* Extensible. All fields are `null` by default, so adding something new is
+  backward-compatible.
+
+Cons:
+* The API surface is huge, and getting to the desired
+* The notion of equality is inconvenient.
+  `ValueBag().also { hour = 13; minute = 16 } != ValueBag().also { hour = 13; minute = 16; second = 0 }`,
+  even though `toLocalTime()` works the same on them, and people don't typically
+  need to check the value of `second` manually. Actual equality behaves
+  differently from the *practically observable* equality.
+
+### Option 2: Clojure's pride, the Map
+
+```kotlin
+public fun LocalTime.toComponents(): Map<Field, Any> = buildMap {
+    put(HourField, hour)
+    put(MinuteField, minute)
+    put(SecondField, second)
+    put(NanosecondField, nanosecond)
+}
+
+public fun LocalTime.Companion.fromComponents(components: Map<Field, Any>): LocalTime {
+    fun getField(field: Field, name: String, defaultValue: Int? = null): Int {
+        val component = components[field] ?: return defaultValue ?: throw IllegalArgumentException("Missing field '$name'")
+        return component as? Int ?: throw IllegalArgumentException("Field '$name' is not an Int but a ${component::class}")
+    }
+    val hour = getField(HourField, "HourField")
+    val minute = getField(MinuteField, "MinuteField")
+    val second = getField(SecondField, "SecondField", 0)
+    val nanosecond = getField(NanosecondField, "NanosecondField", 0)
+    return LocalTime(hour, minute, second, nanosecond)
+}
+
+public fun Format<*>.parseUnresolved(charSequence: CharSequence): MutableMap<Field, Any>
+
+public fun Format<*>.format(components: Map<Field, Any>): String
+```
+
+Client code examples:
+```kotlin
+Format.ISO_OFFSET_DATE_TIME.format(
+  localDateTime.toComponents() + offset.toComponents()
+)
+
+Format.fromFormatString("ld<yyyy-mm(|-dd)>")
+// can also be LocalDate.Format.fromFormatString in this case
+  .parseUnresolved("2023-02")
+  .apply { getOrPut(DateFields.DAY_OF_MONTH) { 1 } }
+  .toLocalDate()
+```
+
+More or less done by Java:
+<https://docs.oracle.com/en/java/javase/16/docs/api/java.base/java/time/format/DateTimeFormatter.html#parseUnresolved(java.lang.CharSequence,java.text.ParsePosition)>,
+<https://docs.oracle.com/en/java/javase/16/docs/api/java.base/java/time/format/DateTimeFormatter.html#format(java.time.temporal.TemporalAccessor)>
+
+Pros:
+* Aside from a bunch of field constants, the API surface is small.
+* Nothing new to explain: these are simply maps, with all their `getOrPut`
+  and `merge` glory.
+
+Cons:
+* `Format.build`, `Format.fromFormatString`, and predefined constants of type
+  `Format<*>` may be confusing entry points that are required with this
+  approach if there are other, better-typed entry points.
+* Shuffling maps may have a bit more overhead.
+* No putting a breakpoint on field access or assignment with these things.
