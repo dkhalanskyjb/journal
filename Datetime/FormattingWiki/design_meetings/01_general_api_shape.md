@@ -109,6 +109,13 @@ Cons:
   - Option: have `iso8601()` and the like functions in the builders that just
     append the format.
 
+> **Resolution**. The fact that we can't print or serialize formats or, at a
+> later point, add new functionality to them is a dealbreaker.
+> Also, if someone *does* need every ounce of performance and sees that creating
+> formats becomes too expensive, it would be nice to provide the means to avoid
+> it. The upside of the lack of the format class, namely the `toString { }`
+> syntax, can also be replicated with a dedicated class.
+
 ### Option 2: one class for all types' formats
 
 ```kotlin
@@ -153,6 +160,9 @@ Cons:
 * The return type of `format.parse` is some collection of all parsed fields, not
   the object we actually want to parse.
 
+> **Resolution**. In this case, type safety won't hurt anyone. Just having
+> a formless `Format` doesn't seem to be better in any regard than `Format<T>`.
+
 ### Option 3: a generic class
 
 ```kotlin
@@ -162,6 +172,10 @@ val format = kotlinx.datetime.Format.build<LocalTime> {
   literal(':')
   appendMinute()
 }
+
+// implemented with something like that, where `LocalTime : IsActuallyLocalTime`.
+fun build<T: IsActuallyLocalTime>(block: LocalTimeFormatBuilder.() -> Unit)
+  : Format<LocalTime>
 
 // Alternative that's extensible and sensibly implemented but looks odd:
 val format: Format<LocalTime> = kotlinx.datetime.LocalTime.buildFormat { }
@@ -177,7 +191,36 @@ Cons:
   It can be split into `Format.ISO_DATE` + `Format.ISO_DATETIME` + ...
   like in Java.
 * If someone wants to parse vaguely structured data and only later interpret it
-  as some specific data type, the type bounds can be a nuisance. 
+  as some specific data type, the type bounds can be a nuisance.
+
+> **Resolution**. The `build<T>` trickery *is* nasty, and isn't worth it.
+> The "extensible alternative" is okay, but is not intuitive. There's also the
+> option to have the mouthful of `Format.buildLocalTimeFormat { }`.
+> Given that option 3.5 was suggested, not worth considering.
+
+### (**Winner**) Option 3.5: a generic format class, but also a namespace for formats in each class
+
+```kotlin
+interface DateTimeFormat<T> {
+  fun format(value: T): String
+  fun parse(string: String): T
+}
+
+class LocalTime {
+  object Format {
+    val ISO: DateTimeFormat<LocalTime>
+
+    fun build(block: LocalTimeFormatBuilder.() -> Unit): DateTimeFormat<LocalTime>
+  }
+}
+```
+
+> **Resolution**. This option is the middle ground between options 3 and 4 and
+> was suggested during the design meeting. **We'll attempt to implement this**.
+> However, we'll have to think carefully about the naming at a later point.
+> Currently, it looks like there's nothing date-time-specific to
+> `DateTimeFormat`, it's just used in the date-time library, but could as well
+> parse/format some other things. In particular, it's fine for numbers and such.
 
 ### Option 4: a separate format class for each field container
 
@@ -200,7 +243,7 @@ thing like `LocalDatePattern`.
 
 Pros:
 
-* Like the previous option, but also without any trickery.
+* Like the `Format<T>` option, but also without any trickery.
 * Each class can store the format constants that are applicable to it.
 
 Cons:
@@ -213,6 +256,9 @@ Cons:
   documentation between the methods common for all formats, depending on how
   many such methods we end up with.
 
+> **Resolution**. Doesn't bring any clear benefits over 3.5. It *is* true that
+> these `Format` classes don't introduce anything new on their own over
+> `Format<T>`, after all.
 
 Interfaces for building formats
 -------------------------------
@@ -388,7 +434,13 @@ Pro this option:
 * Automatic uniformity of parameter names.
 * Shared documentation for the functions.
 
-### Option 2: for every directive form, introduce a separate function
+> **Resolution**. This is less comfortable to use, that's for certain.
+> For some use cases, like automatic translation from some other ways to
+> represent datetime formats to our ones, this may be more convenient, but these
+> use cases are advanced and should not drive the API design at the initial
+> stage.
+
+### (**Winner**) Option 2: for every directive form, introduce a separate function
 
 ```kotlin
 appendMonthNumber(minDigits = 2) // there's also `appendMonthName`
@@ -409,3 +461,9 @@ Pro this option:
 * Autocompletion is more predictable: people probably think "I want to output
   the month... as a number" and not "I want to output a number... that
   represents the month"
+
+> **Resolution**. Even if we wanted to go with the option 1, we would still
+> need to introduce something like this: easier to read, easier to write.
+> So, there's no avoiding these functions, as well as the duplication of
+> parameter names and forms. We'll go with this one for now, and will introduce
+> the API from option 1 only if there's some demand.
