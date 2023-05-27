@@ -128,13 +128,15 @@ Pros of this format:
   copy-pasting of common formats.
   - As seen in the "top formats" list, most formats don't need to be copy-pasted
     if the format string patterns are comprehensible.
-* ChatGPT 3 can write these format strings when asked for Java's
+* Widely documented.
+  - Will only add confusion if we adapt some of the behavior.
+* ChatGPT 3 can write and explain these format strings when asked for Java's
   `DateTimeFormatter`.
   - When asked for Kotlin's format strings, it starts hallucinating.
 
 Cons of this format:
 
-* Write-only in tough cases, read-only in normal cases.
+* At best write-only in tough cases, at best read-only in normal cases.
 * Can only be written by carefully consulting the reference, there is no system.
 * Was never meant for machine-machine communication, and the design choices in
   the formats reflect that.
@@ -158,3 +160,144 @@ Cons of this format:
   - Java provides *lenient* and *strict* parsing and *lenient*, *strict*, and
     *smart* resolving mechanisms, all of which have their downsides and are
     generally not understood well.
+
+
+printf-style format strings
+---------------------------
+
+### In general
+
+#### Formatting
+
+Example: `%02d:%02d:%02.3f`
+
+```c
+int hours = 23;
+int minutes = 54;
+float seconds = 21.5213;
+printf("%02d:%02d:%02.3f\n", hours, minutes, seconds);
+// 23:54:21.521
+```
+
+Consists of literal characters and directives.
+* Literal characters are output as usual.
+* Directives (called "conversion specifications") have the general form
+  `%[$][flags][width][.precision][length modifier]conversion`
+
+`\n` is handled by the C compiler, `printf` only sees the actual newline
+character.
+
+Directly after `%`, one may write `n$` to denote that the value should be
+taken from the `n`'th argument.
+
+Flags are single characters that provide
+* padding with zeros,
+* padding with spaces on the left,
+* padding with spaces on the right,
+* characters that show the type of the field (`0` for octal,
+  `0x` for hexadecimal, terminal `.` for floating-point numbers, etc)
+* initial sign,
+* grouping of digits (like `1'000'000`).
+
+`width` is the width before the floating point.
+
+`.precision` is the length after the floating point. For strings, this is the
+max length to output.
+
+Width and length can be either numbers or `*n$` to denote that the `n`'th
+argument is the desired width.
+
+`length modifier` defines how big a type to expect (e.g., `Int` vs `Long`).
+
+Some examples of directives:
+* `%o`, output as unsigned octal number.
+* `%# 3o`, output as unsigned octal number, always prepending 0, space-padded on
+  the left to at least three characters.
+* `%-6.8s`, output at least 6 and at most 8 characters of the given string,
+  space-padded on the right.
+* `%+08lld`, output at least 8 characters of the given `Long` value,
+  zero-padded, always outputting the sign.
+* `%2$d`, print the 2nd argument as a decimal number.
+* `%2$0*2$d`, print the 2nd argument as a decimal number, with the width equal
+  to that same number, space-padded.
+
+#### Parsing
+
+A bit similar to formatting, but actually different.
+
+Format strings consist of:
+* Whitespace characters. They match `[ \t\n]*`.
+* Directives, starting with `%`.
+* Ordinary characters. They match themselves.
+
+Directives are of the form `%[$][flags][width][length modifier]conversion`.
+
+`n$`, like with formatting, can be used to specify the argument to interact
+with.
+
+Flags:
+* "Do not assign to anything, just skip".
+* "Digits may be grouped" (like `1'000'000`).
+* "I won't provide the buffer to hold the result, allocate it on your own".
+
+The width now defines the maximum width to read. For example, `%5s` means
+"parse at most 5 non-white-space characters into a string".
+
+Parsing is lenient and doesn't care about the intricacies of formatting:
+* Numeric signs can always be present.
+* `0xABCD` and `0Xabcd` are parsed with the same directives.
+* Floating-point number directives read all the notations they know of.
+* etc.
+
+Some new directives or behaviors are there:
+* `%[a-z]`, `%[^0-9]`, etc: groups of characters. Stored in a string.
+* `%c` is used in `printf` to format chars, but `%5c` will read exactly
+  5 characters, perfect for fixed-width input.
+* `%n` doesn't parse anything, instead outputting the number of characters
+  already read.
+
+Python format strings
+---------------------
+
+### In general
+
+#### Beginning: the modulo operator on strings
+
+See <https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting>
+
+```python
+"Hi, %s! %s?" % ("me", "What's up") # "Hi, me! What's up?"
+"Hi, %(name)s! %(question)s?" % { "name": "me", "question": "What's up" }
+```
+
+Everything is like in C's `printf`, except that, instead of the `n$`
+position-selecting syntax, we have `(name)` map-querying syntax, and the
+type length need not be specified.
+
+Everything else is as before:
+
+```python
+"%(birthYear)+08d" % { "birthYear" : 21333 } # '+0021333'
+```
+
+#### 2002: template strings
+
+<https://peps.python.org/pep-0292/>
+
+Very simple wrapper 
+
+```python
+from string import Template
+Template('$who likes $what').safe_substitute({"who": "tim"}) # 'tim likes $what'
+Template('$who likes $what').substitute({"who": "tim"}) # KeyError: 'what'
+Template('$who likes $what').substitute({"who": "tim", "what": "$100"}) # 'tim likes $100'
+Template('$who likes $what').substitute(who = "tim", what = "$100") # 'tim likes $100'
+```
+
+Seems like that's the full API.
+
+#### 2006: the `.format` function on strings
+
+<https://peps.python.org/pep-3101/>
+
+
