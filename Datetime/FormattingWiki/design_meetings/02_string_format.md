@@ -199,7 +199,7 @@ Flags are single characters that provide
 * initial sign,
 * grouping of digits (like `1'000'000`).
 
-`width` is the width before the floating point.
+`width` is the total width of the output.
 
 `.precision` is the length after the floating point. For strings, this is the
 max length to output.
@@ -300,4 +300,53 @@ Seems like that's the full API.
 
 <https://peps.python.org/pep-3101/>
 
+The form of the format is specified in
+<https://docs.python.org/3/library/string.html#format-specification-mini-language>:
+`[[fill]align][sign]["z"]["#"]["0"][width][grouping_option]["." precision][type]`
 
+We should go through this group by group.
+* `[[fill]align]` is for padding. `fill` (space by default) is the character to
+  pad with, and `align` is `<` for left alignment, `>` for right alignment,
+  `^` for centering, and `=` is only valid for numeric types and means
+  justifying by putting the padding *inside* the field, like `+000000120`.
+* `sign` is `+`, `-`, or ` `, to denote that the sign must be output always,
+  only when it's minus (the default), or that space should be used instead of
+  the `+`.
+* `z` means that if the number becomes zero after rounding, it should forget its
+  sign. For example, `-0.001` with a single digit after the decimal point is
+  usually `-0.0`, but with the `z` flag, it's `0.0`.
+  Motivation: <https://peps.python.org/pep-0682/>
+* `#` is still the "make the type of the field explicit" directive (prepend
+  `0x` for hex, `0` for octal, etc).
+* The `0` flag is equivalent to the `0=` as `[[fill]align]`.
+* `width` is the total width of the output.
+* `grouping_option` is either `,` or `_`, and that character is used as a
+  separator for thousands. <https://peps.python.org/pep-0378/>,
+  <https://peps.python.org/pep-0515/>.
+  It is not locale-aware, for that one should use the `n` type.
+* `precision` is as usual, the width after the decimal point.
+
+If `type` is specified, it explains how to format the field. It defaults to the
+most typical format. For example, if a number is passed, it will attempt to
+format as a decimal number: `"{}".format(-100) # '-100'`.
+If `x` is passed, it will format in hex (signed):
+`"{:#x}".format(-100) # '-0x64'`.
+
+A notable format is `n`, which will output the number with locale-specific
+separator between thousands.
+
+Many examples are available at
+<https://docs.python.org/3/library/string.html#format-examples>
+
+#### Modern times: the f-strings
+
+A special syntax that allows calculating arbitrary expressions when
+interpolating strings and to describe the format parameters as in `.format()`,
+separated by the colon.
+
+For example:
+```python
+f'{2 + 2 + 119 :=+8}' # '+    123'
+```
+Here, after `:`, there's the format `=+8`, which means "insert padding between
+signs and the number, always output the sign, pad to 8 characters."
