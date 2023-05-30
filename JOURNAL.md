@@ -4881,3 +4881,194 @@ Ok, so: 310bp has some unnamed format for timezone databases and compiles
 something to it. `.github/workflows/tzdbupdate.yml` explains what exactly
 gets compiled: <https://github.com/eggert/tz.git>. At some point, we'll need to
 recreate this process, most likely.
+
+
+2023-05-30
+----------
+
+Configuring a virtual machine for MacOS to test my code on it. For this, I'm
+using <https://github.com/quickemu-project/quickemu>: in theory, you just run
+a couple of simple commands and obtain a virtual machine for the given OS.
+
+Why in particular do I want to test something on MacOS right now: I need to
+understand how the Foundation library chooses the calendar to format dates
+with. For example, how `yyyy-MM-dd` looks when the user's calendar is Buddhist,
+where years are on some unfamiliar scale:
+<https://en.wikipedia.org/wiki/Buddhist_calendar#Epochal_date>.
+
+In Java, the behavior is documented and sensible, defaulting to the ISO
+chronology:
+
+> hronology is determined. The chronology of the result is either the chronology
+> that was parsed, or if no chronology was parsed, it is the chronology set on
+> this class, or if that is null, it is `IsoChronology`.
+
+I already installed the MacOS virtual machine once, but silly me, I forgot the
+user password. I'm sure that, given the filesystem being fully accessible to me,
+I could do something with this (like resetting the password by manual byte
+manipulation), but screw it, that virtual machine was misconfigured anyway.
+I decided to start anew.
+
+Unfortunately, this isn't so simple. Not sure whom to blame. The instructions
+that I followed (<https://github.com/quickemu-project/quickemu#macos-guest>,
+already a bit too involved for my tastes) didn't work, as the virtual hard drive
+that was created for this purpose wasn't the right size: just 2GB.
+
+A benefit of using these involved systems over recreating them manually is that,
+most likely, the problem is already documented. Whoop, it is:
+<https://github.com/quickemu-project/quickemu/issues/578>.
+
+> "Using "Apple Inc. VirtIO Bloc..." as the disk instead of "QEMU HARDDISK..."
+> works just as well.
+> That disk has ~103.08GB storage just like the doc mentioned."
+
+Ok.
+
+Boy do I hope that Swift will work on MacOS Catalina. I think there's a very
+real risk that this OS is so outdated that everything will just fail.
+
+While MacOS installs, I'll describe another line of inquiry that I'm making
+right now. I've been working on porting the Linux implementation of
+kotlinx-datetime to pure Kotlin in order to gain access to things like swapping
+timezone databases (down the line) or `LocalDateTime.toInstant(someCustomRule)`
+conversions (right now). Well, while it won't help with the "down the line"
+thing, there may be a quick workaround for "right now": make every platform work
+through the C++ API: <https://en.cppreference.com/w/cpp/chrono>
+This API is the most powerful of all the platforms and is certainly mighty
+enough to accommodate all our needs.
+
+I gave it a try. All I did was took the `master` branch and replaced the code
+that uses the `date` library with the C++ `<chrono>`, and also updated the
+build scripts to access C++20, where the API was introduced.
+
+I get this error:
+```
+Exception in thread "main" org.jetbrains.kotlin.konan.KonanExternalToolFailure: The /home/dmitry.khalanskiy/.konan/dependencies/llvm-11.1.0-linux-x64-essentials/bin/clang++ command returned non-zero exit code: 1.
+output:
+In file included from /home/dmitry.khalanskiy/IdeaProjects/kotlinx-datetime/core/native/cinterop/cpp/cdate.cpp:11:
+/home/dmitry.khalanskiy/IdeaProjects/kotlinx-datetime/core/native/cinterop/public/helper_macros.hpp:14:17: error: use of undeclared identifier 'stderr'
+        fprintf(stderr, "Insufficient memory available\n");
+                ^
+/home/dmitry.khalanskiy/IdeaProjects/kotlinx-datetime/core/native/cinterop/cpp/cdate.cpp:15:44: error: unknown type name 'year'
+static int64_t first_instant_of_year(const year& yr) {
+                                           ^
+/home/dmitry.khalanskiy/IdeaProjects/kotlinx-datetime/core/native/cinterop/cpp/cdate.cpp:16:12: error: use of undeclared identifier 'sys_seconds'
+    return sys_seconds{sys_days{yr/January/1}}.time_since_epoch().count();
+           ^
+/home/dmitry.khalanskiy/IdeaProjects/kotlinx-datetime/core/native/cinterop/cpp/cdate.cpp:16:24: error: use of undeclared identifier 'sys_days'
+    return sys_seconds{sys_days{yr/January/1}}.time_since_epoch().count();
+                       ^
+...
+```
+
+Strange. LLVM 11.1.0 is fairly modern, it should already know about C++20's
+APIs, but this looks like none of the `<chrono>` is available. However, what I
+got out of it was the name of the command that's executed:
+`/home/dmitry.khalanskiy/.konan/dependencies/llvm-11.1.0-linux-x64-essentials/bin/clang++`.
+I can just run it manually and see what happens:
+```
+$ /home/dmitry.khalanskiy/.konan/dependencies/llvm-11.1.0-linux-x64-essentials/bin/clang++ -std=c++20 cdate.cpp -I../public/
+In file included from cdate.cpp:5:
+../public/helper_macros.hpp:14:17: error: use of undeclared identifier 'stderr'
+        fprintf(stderr, "Insufficient memory available\n");
+                ^
+cdate.cpp:46:14: error: unknown type name 'time_zone'
+static const time_zone *zone_by_id(TZID id)
+             ^
+cdate.cpp:56:18: error: use of undeclared identifier 'get_tzdb'
+    auto& tzdb = get_tzdb();
+                 ^
+cdate.cpp:64:30: error: unknown type name 'tzdb'
+static TZID id_by_zone(const tzdb& db, const time_zone* tz)
+                             ^
+cdate.cpp:64:46: error: unknown type name 'time_zone'
+static TZID id_by_zone(const tzdb& db, const time_zone* tz)
+                                             ^
+cdate.cpp:90:22: error: use of undeclared identifier 'get_tzdb'
+        auto& tzdb = get_tzdb();
+                     ^
+cdate.cpp:103:22: error: use of undeclared identifier 'get_tzdb'
+        auto& tzdb = get_tzdb();
+                     ^
+cdate.cpp:127:16: error: use of undeclared identifier 'INT_MAX'
+        return INT_MAX;
+               ^
+cdate.cpp:134:22: error: use of undeclared identifier 'get_tzdb'
+        auto& tzdb = get_tzdb();
+                     ^
+cdate.cpp:149:18: error: use of undeclared identifier 'local_info'
+            case local_info::unique:
+                 ^
+cdate.cpp:152:18: error: use of undeclared identifier 'local_info'
+            case local_info::nonexistent: {
+                 ^
+cdate.cpp:165:35: error: use of undeclared identifier 'INT_MAX'
+                        *offset = INT_MAX;
+                                  ^
+cdate.cpp:169:18: error: use of undeclared identifier 'local_info'
+            case local_info::ambiguous:
+                 ^
+cdate.cpp:175:27: error: use of undeclared identifier 'INT_MAX'
+                *offset = INT_MAX;
+                          ^
+cdate.cpp:179:19: error: use of undeclared identifier 'INT_MAX'
+        *offset = INT_MAX;
+                  ^
+cdate.cpp:195:19: error: use of undeclared identifier 'INT_MAX'
+    if (offset == INT_MAX)
+                  ^
+cdate.cpp:196:16: error: use of undeclared identifier 'LONG_MAX'
+        return LONG_MAX;
+               ^
+17 errors generated.
+```
+Oh, ok. Two things: first, `year` is clearly available now, as is a lot of other
+things from `<chrono>`. What's not available is, surprisingly, some constants
+and, unsurprisingly, the timezone-related code. Well, it seems that the timezone
+database is not accessible from this.
+
+I wonder if the problem is in the version, in the LLVM, or in the fact that it's
+`llvm...essentials`. Maybe in the non-"essentials" version the timezone database
+*is* included.
+
+Let's try with my system `clang`:
+```sh
+nix-shell -p clang
+clang++ -std=c++20 cdate.cpp -I../public/
+```
+
+Still the exact same 17 errors. So, even the non-"essentials" version doesn't
+provide access to time zones. A pity.
+
+Maybe I'm doing something wrong? `g++` also doesn't know about `get_tzdb` and
+such...
+
+... and neither does the Internet: <https://grep.app/search?q=get_tzdb%28%29>
+
+> Showing 1 - 10 out of 43 results
+
+even before I limit the search to just C++ and not the documentation.
+With the limits <https://grep.app/search?q=get_tzdb%28%29&words=true&filter[lang][0]=C%2B%2B>,
+it's just 29 results.
+
+And here I was hoping that the compilers just hide it behind some macro
+definition and I had to write some deeply-C thing like
+`#define __CLANG_TZDB_ACCESS`. I think I'm out of luck here.
+
+Launching the "MacOS installer" in the meantime...
+
+... and installed successfully.
+
+So, I'll also share my (not really first) impressions about MacOS.
+
+I like it a lot that, like is commonly done in Linux, I can type the name of
+a command into the command line and get a suggestion to install it. Right now,
+I typed `swift` and was prompted to sign some license agreement (which I didn't
+like) in a GUI window (which I also didn't like). I also suppose that I won't
+be able to do the same thing with any arbitrary command.
+
+Yep, `zsh: command not found: tmux`, etc. Of course, there's no package
+repository with common packages, so `zsh` doesn't even know where to look.
+Maybe it'll work once I install a package manager.
+
+

@@ -120,6 +120,60 @@ public static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPatte
 ```
 No separate constants, just immediately caching the formatter.
 
+Two questions:
+
+### Should we editorialize?
+
+A format like `yyyy-MM-dd` is problematic in two cases:
+
+* (Java) If at a later point strict resolving needs to be enabled, then
+  this format will fail, since the year-of-era was supplied but the era was not.
+* (Inherent) Trouble with the years below 1 AD.
+  - Years below 1 can't be parsed.
+  - Years before 1 BC are just formatted as positive numbers.
+  - TODO: check on some Apple hardware what happens when trying to format/parse
+    a date when the system calendar is Buddhist. Maybe this is broken as well.
+    In Java, the behavior is documented and sensible, defaulting to the
+    ISO chronology.
+
+A more tricky example is the infamous `YYYY`, which almost always gives correct
+results, but at the start or the end of the year, contains an off-by-one error.
+
+With pitfalls like this one, we have a choice:
+
+* Try to infer what the user actually meant and do that.
+* Throw an error, explaining to the user that their format is not what they
+  think it is.
+* Both, via a flag.
+  - Is the flag optional? Does it default to the lenient interpretation or to
+    the accurate interpretation?
+
+Against throwing errors:
+
+* Migration in existing code bases has more friction.
+  Common formats that could work automatically for almost all cases, and do so
+  more reliably than in the source in case of inference, will require fixing
+  some errors in the format first.
+
+Against intent inference:
+
+* There are now several ways to do the same thing: the right way (`uuuu`) and
+  the wrong ways (`yyyy`, `YYYY`).
+* If the format gets extracted to a constant that is used in two types of
+  formatters (ours and someone else's), there may be difference in behavior.
+  - Even if *our* behavior is right, we could have at least thrown an error to
+    explain the possible mistake so that all the formatters benefit from it.
+* There is a huge body of existing questions about it on Stack Overflow.
+  If we adopt this format but change it, these questions and answers may add to
+  the confusion.
+
+Against a flag:
+
+* If someone wants inference and is going to learn about a flag and set it, they
+  could just as well replace their `yyyy` with `uuuu` under our guidance.
+
+### How prominent should this API be?
+
 Pros of this format:
 
 * Exists for a long time already, and so is visually familiar to many people.
@@ -142,9 +196,6 @@ Cons of this format:
   the formats reflect that.
 * Seems suitable for building foundational systems by datetime specialists,
   but not for the rank-and-file programmers.
-* There is a huge body of existing questions about it on Stack Overflow, many of
-  which concern some specific implementation. If we adopt this format but change
-  it, these questions and answers may add to the confusion.
 * Surprising behavior in corner cases.
   Example: <https://github.com/StarRocks/starrocks/blob/362528867139fde9f0cfa5300e3872cdb92ee156/fe/fe-core/src/main/java/com/starrocks/common/util/DateUtils.java>
   Here, `yyyy` was used for parsing, but because it's year-of-era and not
@@ -160,6 +211,32 @@ Cons of this format:
   - Java provides *lenient* and *strict* parsing and *lenient*, *strict*, and
     *smart* resolving mechanisms, all of which have their downsides and are
     generally not understood well.
+
+#### Option 1: only add a deprecated method
+
+```kotlin
+@Deprecated(
+  "Provided for ease of migration. " +
+  "Please call `toString` on the resulting `Format` and copy the format " +
+  "to your code directly.",
+  level = DeprecationLevel.WARNING)
+fun FormatBuilder<T>.appendUnicodeFormatString("uuuuMMdd")
+```
+
+Pros:
+
+* Immediately teaches how to idiomatically use our format API without much
+  effort.
+
+Cons:
+
+* If someone want to parse/format platform-native objects as well as
+  the kotlinx-datetime objects *and* had already an existing format defined,
+  they'll have to duplicate the logic, making code evolution more challenging.
+
+#### Option 2: add both a proper API and this one with equal prominence
+
+#### Option 3: make this the main format string API
 
 
 printf-style format strings
