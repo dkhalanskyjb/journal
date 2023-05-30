@@ -130,6 +130,7 @@ A format like `yyyy-MM-dd` is problematic in two cases:
   this format will fail, since the year-of-era was supplied but the era was not.
 * (Inherent) Trouble with the years below 1 AD.
   - Years below 1 can't be parsed.
+    Example: <https://github.com/StarRocks/starrocks/blob/362528867139fde9f0cfa5300e3872cdb92ee156/fe/fe-core/src/main/java/com/starrocks/common/util/DateUtils.java>
   - Years before 1 BC are just formatted as positive numbers.
   - TODO: check on some Apple hardware what happens when trying to format/parse
     a date when the system calendar is Buddhist. Maybe this is broken as well.
@@ -174,7 +175,7 @@ Against a flag:
 
 ### How prominent should this API be?
 
-Pros of this format:
+General pros of supporting this format in some form:
 
 * Exists for a long time already, and so is visually familiar to many people.
 * There is a huge body of existing questions about it on Stack Overflow, many
@@ -182,35 +183,9 @@ Pros of this format:
   copy-pasting of common formats.
   - As seen in the "top formats" list, most formats don't need to be copy-pasted
     if the format string patterns are comprehensible.
-* Widely documented.
-  - Will only add confusion if we adapt some of the behavior.
-* ChatGPT 3 can write and explain these format strings when asked for Java's
+* ChatGPT 3 can write these format strings when asked for Java's
   `DateTimeFormatter`.
   - When asked for Kotlin's format strings, it starts hallucinating.
-
-Cons of this format:
-
-* At best write-only in tough cases, at best read-only in normal cases.
-* Can only be written by carefully consulting the reference, there is no system.
-* Was never meant for machine-machine communication, and the design choices in
-  the formats reflect that.
-* Seems suitable for building foundational systems by datetime specialists,
-  but not for the rank-and-file programmers.
-* Surprising behavior in corner cases.
-  Example: <https://github.com/StarRocks/starrocks/blob/362528867139fde9f0cfa5300e3872cdb92ee156/fe/fe-core/src/main/java/com/starrocks/common/util/DateUtils.java>
-  Here, `yyyy` was used for parsing, but because it's year-of-era and not
-  the ISO year, the formats were deprecated as they "don't support year 0000
-  parsing." Instead, `uuuu` should have been used.
-* Specific implementations vary a lot in their behavior when it comes to
-  parsing. Translating behavior one-to-one is impossible unless we parameterize
-  the format builder heavily.
-  So, *which semantics* should we use when adopting the format strings?
-  - ICU (and Objective-C, which uses it) implements extremely lenient parsing
-    that attempts to fix any kind of broken data:
-    <https://unicode.org/reports/tr35/tr35.html#Lenient_Parsing>
-  - Java provides *lenient* and *strict* parsing and *lenient*, *strict*, and
-    *smart* resolving mechanisms, all of which have their downsides and are
-    generally not understood well.
 
 #### Option 1: only add a deprecated method
 
@@ -236,8 +211,52 @@ Cons:
 
 #### Option 2: add both a proper API and this one with equal prominence
 
+Pros:
+
+* All the usual use cases are supported with the maximum comfort.
+* The use case of sharing a format string between several datetime libraries
+  is also fulfilled.
+
+Cons:
+
+* Tough to market our own format, there's the risk of people using Java's
+  format due to familiarity.
+
 #### Option 3: make this the main format string API
 
+Pros:
+
+* ChatGPT knows this format and can explain it.
+  - Maybe it makes sense to provide the "explanation string" extension function
+    either way to make formats self-documenting.
+* We can handwave all the issues with the format with "well, it's a standard"
+  and avoid any effort related to format string support.
+* Easy migration path to the other options if we call the function verbosely
+  enough from the start (e.g. "`fromUnicodePattern`" instead of
+  "`fromPattern`").
+
+Cons:
+
+* At best write-only in tough cases, at best read-only in normal cases.
+* Can only be written by carefully consulting the reference, there is no system.
+* Was never meant for machine-machine communication, and the design choices in
+  the formats reflect that.
+* Seems suitable for building foundational systems by datetime specialists,
+  but not for the rank-and-file programmers.
+* Specific implementations vary a lot in their behavior when it comes to
+  parsing. Translating behavior one-to-one is impossible unless we parameterize
+  the format builder heavily.
+  So, *which semantics* should we use when adopting the format strings?
+  - ICU (and Objective-C, which uses it) implements extremely lenient parsing
+    that attempts to fix any kind of broken data:
+    <https://unicode.org/reports/tr35/tr35.html#Lenient_Parsing>
+  - Java provides *lenient* and *strict* parsing and *lenient*, *strict*, and
+    *smart* resolving mechanisms, all of which have their downsides and are
+    generally not understood well.
+* Comes with the expectations that some random format strings will work, but
+  they only will if they are locale-oblivious (which may not be obvious in case
+  of common strings like `Jan`, `Feb`, etc) and concern the entities that
+  we already have (for example, no week-based dates or quarters of year).
 
 printf-style format strings
 ---------------------------
