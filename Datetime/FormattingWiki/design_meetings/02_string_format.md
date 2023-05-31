@@ -135,10 +135,11 @@ A format like `yyyy-MM-dd` is problematic in two cases:
   - Years below 1 can't be parsed.
     Example: <https://github.com/StarRocks/starrocks/blob/362528867139fde9f0cfa5300e3872cdb92ee156/fe/fe-core/src/main/java/com/starrocks/common/util/DateUtils.java>
   - Years before 1 BC are just formatted as positive numbers.
-  - TODO: check on some Apple hardware what happens when trying to format/parse
-    a date when the system calendar is Buddhist. Maybe this is broken as well.
-    In Java, the behavior is documented and sensible, defaulting to the
-    ISO chronology.
+  - In Java, the choice of scales for years is documented and sensible,
+    defaulting to the ISO chronology. In the Foundation library, if the locale
+    of the formatter is explicitly set to something, the Gregorian calendar is
+    chosen, but otherwise, the current system calendar will be used.
+    This is not documented AFAIK.
 
 A more tricky example is the infamous `YYYY`, which almost always gives correct
 results, but at the start or the end of the year, contains an off-by-one error.
@@ -175,6 +176,13 @@ Against a flag:
 
 * If someone wants inference and is going to learn about a flag and set it, they
   could just as well replace their `yyyy` with `uuuu` under our guidance.
+
+Another small question: should we parse format strings leniently or strictly?
+The pattern `yyyy-MM-ddTHH:mm:ss` will be recognized by Java as correct, with
+`T` being treated as a literal, but if at a later point the T directive is
+introduced, the code will break. Do we want to accept patterns that are this
+malformed? (The Unicode format does occasionally expand to include new and new
+pattern letters).
 
 ### How prominent should this API be?
 
@@ -260,6 +268,9 @@ Cons:
   they only will if they are locale-oblivious (which may not be obvious in case
   of common strings like `Jan`, `Feb`, etc) and concern the entities that
   we already have (for example, no week-based dates or quarters of year).
+* *Is a poor conceptual fit for the modern understanding of localized
+  formatting. Even if we only use it for non-localized formatting, the existing
+  body of knowledge may confuse people.*
 
 printf-style format strings
 ---------------------------
@@ -355,6 +366,16 @@ Some new directives or behaviors are there:
 * `%n` doesn't parse anything, instead outputting the number of characters
   already read.
 
+Swift format strings
+--------------------
+
+<https://stackoverflow.com/a/52332748>
+
+Disappointingly enough, it's just the C format strings with an occasional
+incompatibility like "integers with serapated digit groups" not working or there
+being a new directive `%@` that formats an Objective-C object by calling its
+`descriptionWithLocale` method.
+
 Python format strings
 ---------------------
 
@@ -449,3 +470,10 @@ f'{2 + 2 + 119 :=+8}' # '+    123'
 ```
 Here, after `:`, there's the format `=+8`, which means "insert padding between
 signs and the number, always output the sign, pad to 8 characters."
+
+Rust
+----
+
+<https://doc.rust-lang.org/std/fmt/index.html>.
+
+

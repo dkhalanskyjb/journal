@@ -5237,6 +5237,11 @@ I checked on Java 17, and it's still there.
 
 I don't think we're up to fixing this at the moment. After all, nobody cares,
 and rewriting the whole JVM and JS implementations not to use the
-`ZonedDateTime`, in which the problem lies. We could probably fix this on
+`ZonedDateTime`, in which the problem lies, means a lot of effort for dubious
+gain, not to mention the bloating of the bytecode size on the JVM, a problem
+on Android. I think having an issue with doing arithmetic operations on one day
+in 2011 is a small price to pay. We could probably fix this on
 Native, but then there would be a discrepancy in behavior. So, I think, just let
 it be.
+
+
