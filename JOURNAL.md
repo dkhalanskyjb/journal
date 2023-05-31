@@ -5071,4 +5071,172 @@ Yep, `zsh: command not found: tmux`, etc. Of course, there's no package
 repository with common packages, so `zsh` doesn't even know where to look.
 Maybe it'll work once I install a package manager.
 
+Oh, just in case I forget, the password to my virtual machine is `abcd`.
+I hope that whichever hacker pulls off a highly-involved series of tricks to
+gain access to my work machine will find it rewarding to have read my journal.
+For the record, my actual user account password is much more involved.
 
+2023-05-31
+----------
+
+A hot summer day. I've been preparing for the next internal design meeting about
+datetime formatting API, so for now, I want to do something absent-minded.
+For example, porting some tests from
+<https://github.com/tc39/proposal-temporal/blob/503c1edea7c81e11dde033fc94ecbdcdc83d171d/polyfill/test/zoneddatetime.mjs#L1>.
+I'll need to do that anyway before I merge my implementation of timezone rule
+handling.
+
+Looks like the only relevant section is
+<https://github.com/tc39/proposal-temporal/blob/503c1edea7c81e11dde033fc94ecbdcdc83d171d/polyfill/test/zoneddatetime.mjs#L2173-L2430>.
+The other things are mostly checks of the correctness of specific operations.
+Let's see what's useful there...
+
+> Samoa date line change (subtract): 11:00PM 31 Dec 2011 -> 10:00PM 29 Dec 2011
+
+(`Pacific/Apia`) Wow, interesting. That's a huge jump to make!
+
+Another thing that stood out:
+
+```js
+    it('year 0 leap day', () => {
+      let zdt = ZonedDateTime.from('0000-02-29T00:00-00:01:15[Europe/London]');
+      equal(`${zdt.toInstant()}`, '0000-02-29T00:01:15Z');
+      zdt = ZonedDateTime.from('+000000-02-29T00:00-00:01:15[Europe/London]');
+      equal(`${zdt.toInstant()}`, '0000-02-29T00:01:15Z');
+    });
+```
+
+I wonder what it tests. So, we parse the same thing twice and both times check
+that the `Instant` is the `LocalDateTime` minus the `UtcOffset`, even when
+we're on the year 0 leap day... Ok, I don't get why it's a special case.
+
+I think this is it? Didn't find any other interesting edge cases in the test
+suite.
+
+Funny: when I wrote
+
+```kotlin
+@Test
+fun samoaDateJump() {
+  val zone = TimeZone.of("Pa
+}
+```
+Copilot suggested
+
+```kotlin
+@Test
+fun samoaDateJump() {
+  val zone = TimeZone.of("Pacific/Apia")
+  val initialDateTime = LocalDateTime(2011, 12, 29, 23, 59, 59, 999999999)
+}
+```
+
+Not quite accurate (I think), but just how knowledgeable is it if it knows even
+such obscure dates?
+
+Ok, the test that checks that there was a transition on `2011-12-29` at
+`22:00` doesn't pass. This is treated as just a normal date. I guess I'll either
+have to read the original test or figure out what is supposed to have happened
+that day. I'll choose the latter as the more robust and less legally exhausting
+approach.
+
+So: <https://en.wikipedia.org/wiki/International_Date_Line#Samoan_Islands_and_Tokelau_(1892_and_2011)>
+
+> In 2011, Samoa shifted back to the west side of the IDL by removing Friday,
+> 30 December 2011 from its calendar.
+> This changed the time zone from UTC−11:00 to UTC+13:00 (UTC-10 to UTC+14 Dst).
+
+So, it looks like the jump actually happened on the midnight, and they jumped
+24 hours.
+
+This test of mine doesn't pass though for some reason:
+
+```kotlin
+    @Test
+    fun samoaDateJump() {
+        val zone = TimeZone.of("Pacific/Apia")
+        // the LocalDateTime skipped from 2011-12-30T24:00 to 2011-12-31T23:00
+        val initialDateTime = LocalDateTime(2011, 12, 30, 0, 0)
+        val newYear = LocalDateTime(2012, 1, 1, 0, 0)
+        val instantJustBeforeTransition = initialDateTime.toInstant(UtcOffset.ZERO)
+            .minus(1, DateTimeUnit.NANOSECOND)
+            .toLocalDateTime(UtcOffset.ZERO)
+            .toInstant(zone)
+        assertEquals(LocalDateTime(2011, 12, 31, 0, 0),
+            instantJustBeforeTransition.plus(1, DateTimeUnit.NANOSECOND).toLocalDateTime(zone))
+        assertEquals(newYear,
+            instantJustBeforeTransition.plus(1, DateTimeUnit.DAY, zone).plus(1, DateTimeUnit.NANOSECOND)
+                .toLocalDateTime(zone))
+        assertEquals(instantJustBeforeTransition.toLocalDateTime(zone),
+            newYear.toInstant(zone).minus(1, DateTimeUnit.NANOSECOND).minus(1, DateTimeUnit.DAY, zone)
+                .toLocalDateTime(zone))
+    }
+```
+
+Everything until the last assert is just fine, but the last assert fails with
+> `AssertionError: Expected <2011-12-29T23:59:59.999999999>, actual <2011-12-31T23:59:59.999999999>.`
+
+On all the platforms, including Java!
+
+Let's simplify the issue.
+
+```kotlin
+assertEquals(LocalDateTime(2011, 12, 29, 23, 0).toInstant(TimeZone.of("Pacific/Apia")),
+    LocalDateTime(2011, 12, 31, 23, 0)
+        .toInstant(TimeZone.of("Pacific/Apia"))
+        .minus(1, DateTimeUnit.DAY, TimeZone.of("Pacific/Apia")))
+```
+
+fails with
+`expected:<2011-12-30T09:00:00Z> but was:<2011-12-31T09:00:00Z>`
+
+Finally:
+
+```kotlin
+val fixedPoint = LocalDateTime(2011, 12, 31, 23, 0).toInstant(TimeZone.of("Pacific/Apia"))
+assertEquals(fixedPoint, fixedPoint.minus(1, DateTimeUnit.DAY, TimeZone.of("Pacific/Apia")))
+```
+
+So, thanks to the folks from the Temporal JS proposal, at least one bug in our
+implementation was uncovered, because this certainly does look like a bug.
+I wonder if it's patched in the latest Java though...
+
+Oh wait, Java deals with this via `ZonedDateTime`, which is supposed to be
+shielded from this problem. I think?
+
+Essentially, which code gets executed in our JVM version is
+```kotlin
+atZone(timeZone).plusDays(1).toInstant()
+```
+
+This *seems* benign.
+
+```java
+import java.time.*;
+
+public class Check {
+    public static void main(String[] args) {
+        ZoneId zone = ZoneId.of("Pacific/Apia");
+        ZonedDateTime fixedPoint = LocalDateTime.of(2011, 12, 31, 23, 0).atZone(zone);
+        ZonedDateTime result = fixedPoint.minusDays(1);
+        System.out.println(fixedPoint);
+        System.out.println(result);
+    }
+}
+```
+
+What fun! The output is
+
+```
+2011-12-31T23:00+14:00[Pacific/Apia]
+2011-12-31T23:00+14:00[Pacific/Apia]
+```
+
+So, on Java, this problem is present even with `ZonedDateTime`.
+I checked on Java 17, and it's still there.
+
+I don't think we're up to fixing this at the moment. After all, nobody cares,
+and rewriting the whole JVM and JS implementations not to use the
+`ZonedDateTime`, in which the problem lies. We could probably fix this on
+Native, but then there would be a discrepancy in behavior. So, I think, just let
+it be.

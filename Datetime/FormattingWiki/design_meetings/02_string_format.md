@@ -81,6 +81,8 @@ Followed by a **long** tail of various custom things.
 
 The list of directives that, in total, cover 95% of all the patterns:
 
+| Directive   | Meaning                                                             |
+| ----------- | ------------------------------------------------------------------- |
 | `dd`, `d`   | day of year                                                         |
 | `yyyy`      | 4-digit year of era (in theory, calendar-dependent, may bite)       |
 | `MM`, `M`   | month number                                                        |
@@ -106,6 +108,7 @@ The list of directives that, in total, cover 95% of all the patterns:
 | `VV`        | timezone identifier                                                 |
 
 People clearly don't test their code well:
+
 * Usages of `DateTimeFormatter` with `yyyy-mm-dd` (year, minute, day) were found
   in > 100 repositories.
 * An estimate: about half of the usages of `Z` (`+0000`, `-0330`) is incorrect
