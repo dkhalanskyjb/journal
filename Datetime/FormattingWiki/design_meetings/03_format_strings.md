@@ -103,6 +103,21 @@ incompatibility like "integers with serapated digit groups" not working or there
 being a new directive `%@` that formats an Objective-C object by calling its
 `descriptionWithLocale` method.
 
+For the common use case of formatting numbers,
+<https://developer.apple.com/documentation/foundation/numberformatter> is used.
+Everything is configured explicitly:
+
+```swift
+let percentFormatter = NumberFormatter()
+percentFormatter.numberStyle = .percent
+percentFormatter.locale = Locale(identifier: "en_US_POSIX")       
+percentFormatter.string(from: 0.5) // "50%"
+```
+
+The things to configure are numerous:
+
+* TODO
+
 Python format strings
 ---------------------
 

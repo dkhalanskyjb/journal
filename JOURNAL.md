@@ -5245,3 +5245,179 @@ Native, but then there would be a discrepancy in behavior. So, I think, just let
 it be.
 
 
+I wonder if <https://github.com/Kotlin/kotlinx-datetime/issues/277> can be
+solved not only for `watchosDeviceArm64` but for all the native platforms.
+Looks like the serialization library supports all of them now.
+
+... oh, `androidNativeArm32` is not considered to be a Linux. Well, I guess that
+makes sense, but then there's the question: would the Linux implementation work
+there?
+* Does the `date` library compile fine to ARM?
+* Does the native Android have the timezone database in `/usr/share/zoneinfo`?
+  I don't think that's likely!
+
+So, we're yet to figure out how to provide `androidNativeArm32` support.
+This target is for <https://developer.android.com/ndk>, maybe there are some
+docs there.
+
+I see this: <https://source.android.com/docs/core/permissions/timezone-rules#source-code>
+But what does it mean? `bionic`? `libcore`? What's that?
+Also, this seems to be the advice for the old Android versions, but where's the
+information about how to access the TZDB in newer ones?
+
+Looks like <https://lib.rs/crates/chrono> uses the "`android-tzdata`" crate.
+If so, I could probably check out what `chrono` does to access the timezone
+database. After all, it's Rust, surely it works with Android through the NDK,
+how else would it?
+
+
+Was on a design meeting regarding the `02_SimpleDateFormat.md` document. We did
+not reach any consensus: half of the people were on one side, and another half
+were on another.
+
+The stumbling point was this: there's already the `SimpleDateFormat` format for
+format strings (yep, that's a mouthful of formats). Half of the people thought
+that, despite its deficiencies, the format is so widespread and familiar that
+we would be foolish not to include it as the de-facto standard string format.
+Half of the people thought that, despite it being so widespread, the format is
+deficient and outdated enough that admitting it to our library would cause more
+friction than the initial learning curve that comes with introducing a new
+format.
+
+2023-06-01
+----------
+
+Summer already.
+
+We agreed to start a poll to maybe resolve the disagreement about the general
+form of the string format API. I'll just write the initial text here and send it
+to the other team members to clean it up so that biases are avoided. So, maybe
+the readers of this blog can get an exclusive behind-the-scenes glimpse into how
+this text looked before it was censored. Though I struggle to imagine a reader
+who would be into such details.
+
+@here Call to action!
+
+When designing the format string API for **non-localized** date/time formats, we
+decided on two possible forms:
+
+* A format compatible with most common usages of Java's `DateTimeFormatter` and
+  Swift's `DateFormatter`: `yyyy-MM-dd'T'HH:mm:ssxxx`. The localization
+  functionality will be removed, as will some of the common warts (for example,
+  `yyyy` vs `YYYY` vs `uuuu`).
+* A brand new format that splits the format string into date, time, and UTC
+  offset sections. The format above would look like
+  `ld<yyyy-mm>'T'lt<hh:mm:ss>uo<+hh:mm>`, where `<` and `>` separate
+  sections, and `ld`, `lt`, and `uo` are the section names, where `ld` means
+  `L`ocal`D`ate, `lt` means `L`ocal`T`ime, and `uo` means `U`tc`O`ffset.
+  This helps keep the letters in the format intuitive and not worry about
+  `MM` vs `mm`.
+  Also, a conversion function from the `DateTimeFormatter` format will be
+  provided to simplify migration.
+
+Both approaches have their benefits. Those familiar with Java's
+`DateTimeFormatter` syntax may not want to migrate to and learn some new format,
+while everyone else may be against remembering what `xxx` means and what is the
+difference between `HH` and `hh`.
+
+1: I strongly prefer to see formats like `yyyy-MM-dd'T'HH:mm:ssxxx` in my
+   codebase.
+2: I somewhat prefer formats like `yyyy-MM-dd'T'HH:mm:ssxxx`.
+3: I somewhat prefer that the strings for date formats are rethought from the ground up.
+4: I strongly want the strings for date formats to be rethought from the ground up.
+5: What format strings? I just want a concise builder API for the formats.
+
+We want as many votes as possible! Please also ask your friends and colleagues.
+If they don't want to register in the Kotlin Slack, it's okay if you tell us
+their vote in the comments.
+
+
+Oh, well, looks like nobody wants to censor it. I fixed the grammar a bit and
+reworded some things myself, but my colleagues don't seem to have any
+objections. So, this is probably the version that will get posted today.
+
+
+Let's dig into the implementation of time zone rules. Interesting
+implementations are 310bp's and
+<https://github.com/HowardHinnant/date/tree/master/src>.
+
+First, let's see if anything relevant has changed in the `date` library in the
+last three years (and so, should I upgrade it before reading through it and
+getting rid of the dependency on it).
+
+I see many changes to the string formats, and also some changes to the `ptz.h`
+file. What is that?
+
+```c
+// This header allows Posix-style time zones as specified for TZ here:          
+// http://pubs.opengroup.org/onlinepubs/9699919799/basedefs/V1_chap08.html#tag_08_03
+```
+
+```c
+// Note, Posix-style time zones are not recommended for all of the reasons described here:
+// https://stackoverflow.com/tags/timezone/info                                 
+```
+
+Oh, neat, a new resource I didn't know about. Well, anyway, this means that
+`ptz.h` is irrelevant. I've encountered the POSIX timezones already, and yeah,
+it seems like nobody is using them.
+
+A new file, `include/date/solar_hijri.h`. No thanks. We should pick our battles.
+
+Finally, the `tz.cpp` file. I see some new things being initialized that weren't
+before, some new error checks for `nullptr`. Less special handling for Apple's
+lack of leap second support (before, even the fields related to leap seconds
+were not provided, but now they are just empty). There's now no special "tzdb
+version" property just on Apple devices: now, on every device, `+VERSION` and
+`version` files in the timezone database directory are checked for their version
+info.
+
+These are all minor things.
+
+Now, I *could* have just checked out `master` and read the latest
+implementation, but this going through the changes is also useful: this way, I
+can be sure that the code I'm reading is stable, was not subject to drastic
+changes recently, and won't have surprising bugs that just weren't ironed out
+yet due to their young age. If there *were* recent changes, then not only would
+I be more careful around these parts of the code, but I also would know that
+what we had in 2020 was somehow deficient: otherwise, the changes wouldn't be
+made. For example, if some new form of caching was added in 2022, I'd know for
+sure that someone encountered a performance issue without the caching.
+Luckily, there's nothing of this sort and I can relax and read the code.
+
+
+Just received a report in Kotlin Slack:
+```kotlin
+
+    @Test
+    fun nestedTimeouts() = runBlocking {
+        val disp: CloseableCoroutineDispatcher = newSingleThreadContext("my-test")
+        val result = withTimeout(30.seconds) {
+            withContext(disp) {
+                // Disabling the inner timeout will make it work correctly
+                withTimeout(30.seconds) {
+                    "Hello"
+                }
+            }
+        }
+        println(result) // Print "Hello"
+        disp.close()
+        println("Dispatcher closed: $disp") // We never reach here if the inner timeout is enabled
+    }
+```
+
+It still reproduces: this will wait for half a minute before `close` succeeds.
+
+This reminds me of <https://github.com/Kotlin/kotlinx.coroutines/pull/3441/>...
+but no, the root of the issue is different. The handle is properly cancelled
+this time. What's the problem then?
+
+Oh, I see, it's the `schedule` implementation in `WorkerDispatcher`.
+The disposable handler that gets created will not notify the `worker` that the
+code no longer needs to be executed.
+
+I think I fixed the issue: <https://github.com/Kotlin/kotlinx.coroutines/pull/3769>
+Let's see what the CI thinks about it. For now, let's get back to the timezones.
+
+`tzdb::current_zone` is a very important function: it collects various places
+where the currently-used timezone could be defined.
