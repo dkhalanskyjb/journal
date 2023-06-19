@@ -168,3 +168,71 @@ Commonly used specific directives
 * Short POSIX month names: `Jan`, `Feb`, `Mar`, etc.
 * Full POSIX month names: `January`, `February`, `March`, etc.
 * Upper-case short POSIX month names: `JAN`, `FEB`, `MAR`, etc.
+
+### Days of week
+
+* Short POSIX weekday names: `Mon`, `Tue`, `Wed`, etc.
+* Full POSIX weekday names: `Monday`, `Tuesday`, `Wednesday`, etc.
+
+### Days
+
+* Zero-padded two-digit days of month.
+* Day of month, possibly single-digit.
+* Strange localized strings: `1st`, `2nd`, or `третье`.
+
+### Hours
+
+* 24-hour hours, zero-padded to two digits.
+* 12-hour hours, with the `AM`/`PM` marker...
+* ... or the `am`/`pm` marker...
+* ... or the `a.m.`/`p.m.` marker.
+* There is also a fancy variation: 12-hour hours + period of day (evening,
+  night, morning, day). This is obscure, and it seems like people only use this
+  for localization, never for machine-to-machine communication.
+
+### Minutes, seconds
+
+* 2-digit zero-padded values. Doesn't seem like anyone's using anything else.
+
+### Fractions of a second
+
+Heavily varies:
+
+* Whether or not a dot is included.
+* Whether or not a dangling dot is permitted.
+* How many digits to round to.
+* Dual: how many digits to parse at most.
+* How many digits to output at the least, even with the trailing zeros
+* Dual: how many digits to require for successful parsing.
+
+### UTC offset
+
+The number of ways to output the UTC offset is very limited. See
+<https://docs.oracle.com/en/java/javase/16/docs/api/java.base/java/time/format/DateTimeFormatterBuilder.html#appendOffset(java.lang.String,java.lang.String)>
+
+* If the offset is zero, there may be the special behavior of outputting
+  `Z` or `z`, without doing anything else.
+* Occasionally, people don't want to output anything at all for the offset zero.
+* First, the sign is always output.
+* Then, the hour, either zero-padded two-digit, or without padding.
+* Either all components are separated with a `:` or they aren't separated
+  at all.
+* Minutes and seconds, when they are used, are zero-padded to two digits.
+* Minutes and seconds are not always used. Sometimes they need to always be
+  used, sometimes they are only used if non-zero.
+
+The variations that are used in practice, in the order of decreasing popularity,
+via the format strings:
+
+* Unconditionally print the sign, the two-digit hours, and the minutes, without
+  separators.
+* Print `Z` on zero, otherwise print the sign, the two-digit hours, and if the
+  minutes are non-zero, also them.
+* Print `Z` on zero, otherwise the sign, two-digit hours, `:`, and the minutes.
+* The sign, two-digit hours, `:`, and the minutes.
+
+Needs vary wildly, but these formats are ubiquitous.
+Usages that employ builders instead:
+<https://grep.app/search?q=appendOffset%28%22&case=true&filter[lang][0]=Kotlin&filter[lang][1]=Java>
+
+
