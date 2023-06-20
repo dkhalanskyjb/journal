@@ -235,4 +235,47 @@ Needs vary wildly, but these formats are ubiquitous.
 Usages that employ builders instead:
 <https://grep.app/search?q=appendOffset%28%22&case=true&filter[lang][0]=Kotlin&filter[lang][1]=Java>
 
+The provided set of functions in builders
+-----------------------------------------
 
+Some takeaways and problems from the description of required directives.
+
+### Localized strings in non-localized formats
+
+Localized English names of months, days of week, and AM/PM markers sometimes
+need to be used in machine-readable formats.
+The POSIX locale describes these names:
+<https://www.localeplanet.com/icu/en-US-POSIX/index.html>
+Should we provide these in some form?
+
+* `monthPosixName()` + `monthShortPosixName()`
+* `monthPosixName(formatStyle)` ("short", "full", maybe "abbreviated").
+  Note that so far, we haven't established any need for these styles anywhere
+  else.
+* The general mechanism `appendMonthName()` + constant like
+  "short POSIX month names" somewhere.
+
+### Last two digits of the year
+
+`2019` -> `19`, `19` -> `2019`.
+
+To resolve the year when parsing, we need some base point to add the number to.
+For example, if the year 1960 is the base, `73` -> `1973`, but `59` -> `2059`.
+
+Java's approach:
+<https://play.kotlinlang.org/#eyJ2ZXJzaW9uIjoiMS44LjIxIiwiY29kZSI6ImltcG9ydCBqYXZhLnRpbWUuKlxuaW1wb3J0IGphdmEudGltZS5mb3JtYXQuKlxuaW1wb3J0IGphdmEudGltZS50ZW1wb3JhbC4qXG5cbmZ1biBTdHJpbmcuemVyb1BhZChsZW5ndGg6IEludCk6IFN0cmluZyA9IGJ1aWxkU3RyaW5nIHtcbiAgICByZXBlYXQobGVuZ3RoIC0gdGhpc0B6ZXJvUGFkLmxlbmd0aCkgeyBhcHBlbmQoJzAnKSB9XG4gICAgYXBwZW5kKHRoaXNAemVyb1BhZClcbn1cblxuZnVuIG1haW4oKSB7XG4gICAgdmFsIGZvcm1hdHRlciA9IERhdGVUaW1lRm9ybWF0dGVyQnVpbGRlcigpLmFwcGVuZFZhbHVlUmVkdWNlZChDaHJvbm9GaWVsZC5ZRUFSLCAyLCAyLCAxOTYwKS50b0Zvcm1hdHRlcigpXG4gICAgZm9yICh5ZWFyIGluIDE5MDAuLjIxMDApIHtcbiAgICAgICAgdmFsIGRhdGUgPSBMb2NhbERhdGUub2YoeWVhciwgMSwgMSlcbiAgICAgICAgcHJpbnRsbihcIiR5ZWFyIC0+ICR7Zm9ybWF0dGVyLmZvcm1hdChkYXRlKX1cIilcbiAgICB9XG4gICAgZm9yICh5ZWFyIGluIDAuLjEwMCkge1xuICAgICAgICB2YWwgcGFyc2VkID0gZm9ybWF0dGVyLnBhcnNlKFwiJHt5ZWFyLnRvU3RyaW5nKCkuemVyb1BhZCgyKX1cIilcbiAgICAgICAgcHJpbnRsbihcIiR5ZWFyIC0+ICRwYXJzZWRcIilcbiAgICB9XG59IiwicGxhdGZvcm0iOiJqYXZhIiwiYXJncyI6IiJ9>
+
+* When formatting, the base is ignored, just the value modulo 100 is used.
+* When parsing, only exactly two digits are permitted.
+
+Problem: the formatter can produce values that will be parsed back, but
+incorrectly. Using `1960` as the base, `2100` -> `00` -> `2000`.
+
+Possible mitigations:
+
+* Just replicate what Java does. No one seems to be complaining.
+* Throw on formatting if the value if outside `[base; base + 100)`.
+* Deliberately output something not according to the format when out of bounds.
+  For example, `2100` -> `100`, `1959` -> `-159`. This way, parsing will break,
+  the users will learn about the problem and will still have a way to extract
+  the actual value.
