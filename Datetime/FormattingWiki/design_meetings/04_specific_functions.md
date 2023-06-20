@@ -279,3 +279,122 @@ Possible mitigations:
   For example, `2100` -> `100`, `1959` -> `-159`. This way, parsing will break,
   the users will learn about the problem and will still have a way to extract
   the actual value.
+
+### Space padding
+
+Month and day numbers are often space-padded. How to describe this
+functionality?
+
+With a dedicated subbuilder:
+
+```kotlin
+monthNamePosix()
+char(' ')
+spacePadded(2) {
+  day()
+}
+char(' ')
+year()
+```
+
+With arguments to the specific directives:
+
+```kotlin
+fun day(minLength = null, padChar = '0')
+```
+
+* In theory, there could be more elaborate uses for space padding, like
+  "pad the whole date to 20 characters," but in practice, padding days and
+  month to two digits seems to be the *only* use case. See
+  <https://grep.app/search?q=padNext%28&words=true> for usages of
+  padding in builders, and in format strings, the only padding that's ever
+  mentioned is for the days. So introducing a whole separate function may be a
+  waste.
+* On the other hand, polluting the signatures of every unsigned field is
+  cumbersome, whereas having different signatures for fields that in practice
+  behave the same may be strange.
+
+### The UTC offsets
+
+#### Convenient access to common formats
+
+It's easy to define `LocalTime.Format.ISO_TIME`, but for offsets, the usage
+varies wildly and there's no widely used "`ISO_OFFSET`".
+
+The four most popular offsets can be described like this in the current
+implementation:
+
+```kotlin
+val offsetFormat1 = UtcOffset.Format.build {
+  offsetSign()
+  offsetHours(2)
+  offsetMinutes(2)
+}
+
+val offsetFormat2 = UtcOffset.Format.build {
+  optional("Z") {
+    offsetSign()
+    offsetHours(2)
+    optional {
+      offsetMinutes()
+    }
+  }
+}
+
+val offsetFormat3 = UtcOffset.Format.build {
+  optional("Z") {
+    offsetSign()
+    offsetHours(2)
+    char(':')
+    offsetMinutes(2)
+  }
+}
+
+val offsetFormat4 = UtcOffset.Format.build {
+  offsetSign()
+  offsetHours(2)
+  char(':')
+  offsetMinutes(2)
+}
+```
+
+* Half of them outputs `Z` on the offset zero.
+* Half of them uses the `:` separator.
+* One of them doesn't output minutes if they are zero.
+* None of them output seconds, even if they are non-zero.
+
+The general version that covers all available formats except those where the
+hour is single-digit (which does happen):
+
+```kotlin
+internal enum class WhenToOutput {
+    NEVER,
+    IF_NONZERO,
+    ALWAYS,
+}
+
+internal fun isoOffset(
+        zOnZero: Boolean,
+        separateWithColons: Boolean,
+        outputMinutes: WhenToOutput,
+        outputSeconds: WhenToOutput,
+): Format<UtcOffset> {
+    require(outputMinutes >= outputSeconds) { "Seconds cannot be included without minutes" }
+    // ...
+}
+```
+
+#### Sign
+
+In practice, the sign always precedes the hour, yet logically it's distinct:
+it's the sign not of the hour but of the whole offset.
+Should we introduce `offsetHours` and `offsetSign` separately, or should
+`offsetHours` just include the sign?
+
+* Not specifying the sign separately is less boilerplate.
+* If one doesn't know the sign is included in `offsetHours`, the lack of it
+  can seem like a mistake and lead the person to search how to add the sign.
+* If one thinks the sign is included in `offsetHours` but it isn't, it will be
+  obvious immediately, so this isn't error-prone in any case.
+
+
