@@ -300,7 +300,7 @@ year()
 With arguments to the specific directives:
 
 ```kotlin
-fun day(minLength = null, padChar = '0')
+fun day(minLength = 1, padChar = '0')
 ```
 
 * In theory, there could be more elaborate uses for space padding, like
@@ -397,4 +397,29 @@ Should we introduce `offsetHours` and `offsetSign` separately, or should
 * If one thinks the sign is included in `offsetHours` but it isn't, it will be
   obvious immediately, so this isn't error-prone in any case.
 
+### The pesky sign of the year
 
+Go, Python, Obj-C etc. only work at most with years in `1` to `9999`, so they
+don't encounter this problem, but in Java, when the year overflows the
+padding in the ISO 8601 format, a sign is unconditionally displayed:
+
+```
+2020
++12020
+-2020
+-12020
+```
+
+ISO 8601 *does* say that a possible extension is permitted if the year is not
+4-digit, and the extension is to output the sign and a number of a predefined
+length, but in general, the behavior for non-four-digit years is not defined.
+
+Sometimes people do use this behavior of the sign
+<https://grep.app/search?q=EXCEEDS_PAD>, but only for years.
+
+```kotlin
+public fun appendYear(
+  minDigits: Int = 1,
+  outputPlusOnExceededLength: Boolean = false
+)
+```
