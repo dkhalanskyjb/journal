@@ -423,3 +423,242 @@ public fun appendYear(
   outputPlusOnExceededLength: Boolean = false
 )
 ```
+
+### Call chaining?
+
+This formatting looks stylistically incorrect:
+
+```kotlin
+LocalTime.Format.build { hour(2); char(':'); minute(2); char(':'); second(2);
+  optional { char('.'); secondFraction() } }
+// equivalent to
+LocalTime.Format.build { hour(2); char(':'); minute(2); char(':'); second(2);
+  oneOf({}) { char('.'); secondFraction() } }
+```
+
+But this is too much wasted space:
+
+```kotlin
+LocalTime.Format.build {
+  hour(2)
+  char(':')
+  minute(2)
+  char(':')
+  second(2)
+  optional {
+    char('.')
+    secondFraction()
+  }
+}
+// equivalent to
+LocalTime.Format.build {
+  hour(2)
+  char(':')
+  minute(2)
+  char(':')
+  second(2)
+  oneOf({
+  }) {
+    char('.')
+    secondFraction()
+  }
+}
+```
+
+This builder form looks stylistically incorrect:
+
+```kotlin
+LocalTime.Format.build { hour(2).char(':').minute(2).char(':').second(2)
+  .optional { char('.').secondFraction() } }
+// equivalent to
+LocalTime.Format.build { hour(2).char(':').minute(2).char(':').second(2)
+  .oneOf({}) { char('.').secondFraction() } }
+```
+
+This builder form is nasty and unreadable when there are is some lexical scoping
+implied:
+
+```kotlin
+LocalTime.Format.Builder()
+  .hour(2).char(':').minute(2).char(':').second(2)
+  .startOptional().char('.').secondFraction().endOptional()
+// equivalent to
+LocalTime.Format.Builder()
+  .hour(2).char(':').minute(2).char(':').second(2)
+  .startAlternativeList()
+  .startAlternative().endAlternative()
+  .startAlternative().char('.').secondFraction().endAlternative()
+  .endAlternativeList()
+```
+
+
+Miscallaneous
+-------------
+
+### Default number of digits
+
+Should we zero-pad (/request zero-padding) by default?
+
+If we do request zero-padding to the likely width by default:
+
+```kotlin
+LocalTime(15, 8).format {
+  hour()
+  char(':')
+  minute()
+} // 15:08
+
+LocalDate(196, 1, 1).format {
+  day(maxDigits = 1)
+  char(' ')
+  monthShortPosixName()
+  char(' ')
+  year()
+} // 1 Jan 0196
+```
+
+If we don't:
+
+```kotlin
+LocalTime(15, 8).format {
+  hour(2)
+  char(':')
+  minute(2)
+} // 15:08
+
+LocalDate(196, 1, 1).format {
+  day()
+  char(' ')
+  monthShortPosixName()
+  char(' ')
+  year(4)
+} // 1 Jan 0196
+```
+
+### Overwriting already parsed components during parsing
+
+```kotlin
+LocalTime.Format.build {
+  hour(2)
+  char(':')
+  minute(2)
+  string(" (")
+    hourOfAmPm(2)
+    char(':')
+    minute(2)
+    char(' ')
+    amPmMarker("AM", "PM")
+  string(")")
+}
+```
+
+Given a string like `15:36 (03:36 AM)` or `15:36 (03:37 PM)`,
+what should the parser it do?
+
+* (Everyone except Java): take one of the two parsed values, either the first
+  or the last one.
+* (Java): throw an exception.
+  - A parsing exception if one field, repeated several times, has conflicting
+    values.
+  - A resolution exception if several fields (like 24-hours and AM/PM markers)
+    are in conflict.
+
+### Parsing with default values
+
+```kotlin
+LocalTime.parse("02:16") { hour(2); char(':'); minute(2) }
+LocalTime.parse("02") { hour(2) }
+LocalTime.parse("") { }
+LocalDate.parse("2020") { year(4) }
+```
+
+* Java: by default (this is configurable), parses the first two.
+  In general, tries to behave in a "smart" manner: if an era is not given,
+  it's the current one, if any of the time components except hours is not given,
+  it's zero, etc. However, hours are required, as are all the date components.
+* Go, Python, C: parse everything, zero-initialize all missing data:
+
+```python
++>>> datetime.datetime.strptime("", "").isoformat()
+'1900-01-01T00:00:00'
+```
+
+Note that it's in theory **possible** to request supplying even all the fields
+in a parser for it to succeed. Partial data can be recovered via a `ValueBag`,
+so we're not blocking off any use cases either way.
+
+What to do?
+
+* Default-initialize everything. Would be strange to ask everyone to provide
+  nanoseconds for a `LocalTime`.
+* Default-initialize nothing.
+* Default-initialize something. What?
+  - On a case-by-case basis.
+  - Zero-initialize exactly the things that have default values in constructors
+    for our classes: minutes, seconds, nanoseconds, all the components of a UTC
+    offset, all the components of a `DateTimePeriod`.
+
+### `oneOf` sections
+
+One use case: parsing vaguely-structured data.
+
+```kotlin
+oneOf({
+  year(4)
+  char('-')
+  monthNumber(2)
+  char('-')
+  dayOfMonth(2)
+}, {
+  dayOfMonth(2)
+  char('/')
+  monthNumber(2)
+  char(' ')
+  year(4)
+}, {
+  dayOfMonth(2)
+  char(' ')
+  monthName(listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))
+})
+```
+
+Make perfect sense and have a clear semantics for parsing: try everything
+until parsing succeeds.
+
+The second use case: parsing well-structured data that allows optional fields.
+
+```kotlin
+oneOf({
+  char('Z')
+}, {
+  offsetSign()
+  offsetHours(2)
+  char(':')
+  offsetMinutes(2)
+})
+
+optional('Z') {
+  offsetSign()
+  offsetHours(2)
+  char(':')
+  offsetMinutes(2)
+}
+```
+
+If we allow default-initialization, this works perfectly well for parsing as
+well: for string `Z`, the offset will be parsed as zero.
+
+For *formatting*, the first use case doesn't make sense, as we know exactly how
+we want to format everything.
+
+* Provide `oneOf` and `optional` with different semantics: in `oneOf`, the first
+  entry is always formatted, and for `optional`, the placeholder string will
+  get formatted if the fields are all in their default values.
+  - For parsing, there will be two similar ways of doing the same thing, one
+    of which works for formatting and one which doesn't.
+* Tweak the semantics of `oneOf` to work like `optional`, and throw on attempts
+  to format using a `oneOf` bunch that just doesn't make sense for formatting.
+* Tweak the semantics of `oneOf` to work like `optional`, and pigeonhole it to
+  always output *something* in a predictable manner.
+* Should we even provide `optional` if it's a thin wrapper, given how thin it
+  is, or should we direct people to the more general API immediately?
