@@ -662,3 +662,185 @@ we want to format everything.
   always output *something* in a predictable manner.
 * Should we even provide `optional` if it's a thin wrapper, given how thin it
   is, or should we direct people to the more general API immediately?
+
+### Serialization of the Format classes
+
+A common use case for format strings is to extract a format into a configuration
+or to send it from one place to another. To support this, we need some kind of
+serialization.
+
+`toString` already outputs formats as code that is both readable and can be
+copy-pasted into a program as is:
+`year(4);char('-');monthNumber(2);char('-');dayOfMonth(2)`.
+
+* This format is fine for people and for migration purposes, but as a
+  serialization format, it's backward-incompatible. If we choose to rename the
+  `dayOfMonth` method to `day`, the format, too, has to change, but this will
+  break the outdated parsers of the format. If we introduce a separate format,
+  it can evolve independently.
+* Having a `parse` or `deserialize` function on a `LocalTime.Format` can be
+  confusing. Seeing `LocalTime.Format.parse` in code could confuse people.
+* Should we provide some functions for (de)serialization that don't rely on
+  `kotlinx-serialization`, or is it okay to just give our users a `Serializer`?
+  Note: currently, with `toString`/`parse`, all entities in the library can be
+  transmitted between processes as strings without `kotlinx-serialization`.
+
+Example that we could cook up if we decide to just rely on the serialization
+library:
+
+```json
+{
+  "type": "Composite",
+  "directives": [
+    {
+      "type": "Field",
+      "name": "IsoYear",
+      "minDigits": 4
+    },
+    {
+      "type": "Literal",
+      "value": "-"
+    },
+```
+
+### The API of the ValueBag
+
+This is what the value bag looks like for now:
+
+```kotlin
+/**
+ * A collection of date-time fields.
+ *
+ * Its main purpose is to provide support for complex date-time formats that don't correspond to any of the standard
+ * entities in the library.
+ *
+ * Accessing the fields of this class is not thread-safe.
+ * Make sure to apply proper synchronization if you are using a single instance from multiple threads.
+ */
+public class ValueBag {
+    /**
+     * Writes the contents of the specified [localTime] to this [ValueBag].
+     * The [localTime] is written to the [hour], [minute], [second] and [nanosecond] fields.
+     *
+     * If any of the fields are already set, they will be overwritten.
+     */
+    public fun populateFrom(localTime: LocalTime) {
+        hour = localTime.hour
+        minute = localTime.minute
+        second = localTime.second
+        nanosecond = localTime.nanosecond
+    }
+
+    public fun populateFrom(localDate: LocalDate)
+    public fun populateFrom(localDateTime: LocalDateTime)
+    public fun populateFrom(utcOffset: UtcOffset)
+    public fun populateFrom(instant: Instant, offset: UtcOffset)
+
+    /** Returns the year component of the date. */
+    public var year: Int?
+
+    /** Returns the number-of-month (1..12) component of the date. */
+    public var monthNumber: Int?
+
+    /** Returns the month ([Month]) component of the date. */
+    public var month: Month?
+        get() = monthNumber?.let { Month(it) }
+        set(value) {
+            monthNumber = value?.number
+        }
+
+    public var dayOfMonth: Int?
+    public var dayOfWeek: DayOfWeek?
+    public var hour: Int?
+    public var minute: Int?
+    public var second: Int?
+    public var nanosecond: Int?
+    public var offsetIsNegative: Boolean?
+    public var offsetTotalHours: Int?
+    public var offsetMinutesOfHour: Int?
+    public var offsetSecondsOfMinute: Int?
+    public var timeZoneId: String?
+
+    /**
+     * Builds a [UtcOffset] from the fields in this [ValueBag].
+     *
+     * This method uses the following fields:
+     * * [offsetTotalHours] (default value is 0)
+     * * [offsetMinutesOfHour] (default value is 0)
+     * * [offsetSecondsOfMinute] (default value is 0)
+     *
+     * Since all of these fields have default values, this method never fails.
+     */
+    public fun toUtcOffset(): UtcOffset
+    public fun toLocalDate(): LocalDate
+    public fun toLocalTime(): LocalTime
+    public fun toLocalDateTime(): LocalDateTime
+    public fun toInstantUsingUtcOffset(): Instant
+}
+```
+
+The requirements we have for this data structure:
+
+* Representing unstructured data: incomplete data and data that's slightly
+  out of bounds.
+* Interoperability with other classes: converting to and from them.
+* Combining several parts together.
+* Checking that the values have some *sensible* range on their assignment.
+
+What is the sensible range for each field?
+
+* Years.
+* Month numbers.
+* Days of month. Sometimes overflows the boundaries by dozens of days.
+* Days of week.
+* Hours.
+* Minutes.
+* Seconds. Sometimes have the value 60. Usually people deal with it by replacing
+  it with 59 and parsing anew.
+* Fraction of a second.
+  Anything but `[0; 1)` seems to be non-representable nonsense, given that we
+  don't provide an explicit "nanoseconds of a second" directive.
+* The offset hour.
+  In practice, offsets are `[-12; 14]`; we support `[-18; 18]`;
+  POSIX mandates support for `(-25; 26)` for the timezone-handling facilities.
+* The timezone ID. The values to support depend heavily on the timezone database
+  and the specific format that may define the meaning for ambiguous timezone
+  abbreviations (like RFC 822 does).
+
+How to handle duplicate data? For example, `month` and `monthNumber`.
+
+* Only provide access to one field of the two.
+* Define one field as a property that accesses the other field.
+
+How to handle duplicate *split* data? `hour` vs `hourOfAmPm` + `hourIsPm`,
+or `year` + `monthNumber` + `dayOfMonth` vs `weekBasedYear` + `isoWeekNumber` +
+`dayOfWeek`.
+
+* Option 1 (spooky action at a distance).
+  There should be a complicated system of resolution in `ValueBag`
+  that ensures the data is propagated to all the known fields. For example,
+  setting `year` + `monthNumber` + `dayOfMonth` should automatically set
+  `dayOfWeek`.
+* Option 2 ("what does it mean, the field is unset?").
+  All these fields should just be independent. If `hourOfAmPm` and
+  `hourIsPm` are set, it doesn't mean `hour` should also be set, and vice versa.
+  `ValueBag().apply { hour = 13 }.format { hourOfAmPm() }` should throw.
+* Option 3 ("I wonder which one it is this time").
+  There is no consistent rule, we should decide this on a case by case
+  basis. For example, `hourOfAmPm` + `hourIsPm` could get its values from
+  `hour` / affect its value, but `dayOfWeek` shouldn't be touched.
+
+Construction: how to set the fields of a newly-created `ValueBag`?
+
+* Manual setters (almost mandatory anyway if we are to represent partial data
+  in some manner, though they can be replace with "set the default value"
+  directive to the parser if we really have to).
+* Functions to populate `ValueBag` from a given object.
+* Constructors that accept these objects one by one.
+* Adding together several `ValueBag` values.
+* Constructors that accept everything at once. Note: difficult to extend, and
+  there are several constructors needed anyway to represent `LocalDateTime` vs
+  `LocalDate` + `LocalTime`.
+
+Access: how to obtain the values from a newly-created `ValueBag`?
+
