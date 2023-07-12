@@ -5421,3 +5421,112 @@ Let's see what the CI thinks about it. For now, let's get back to the timezones.
 
 `tzdb::current_zone` is a very important function: it collects various places
 where the currently-used timezone could be defined.
+
+
+2023-07-12
+----------
+
+My work was not that intellectually involved the last month and a half, and also
+I had some non-work-related difficulties in real life, so I was completely not
+in a mood to write anything.
+
+Now, however, I reached an important realization that may be of historic
+interest.
+
+In our datetime formatting design meetings, we decided not to introduce a
+general mechanism for space padding and instead to limit it to the fields where
+it's actually occasionally used: month and day-of-month numbers, so, to
+generalize just a little bit, unsigned fixed-width numbers.
+
+While trying to write a clean, bug-free implementation of space padding for
+these things, I managed to think of a general rule with which to implement space
+padding in the general case.
+
+The key observation is that typically, a parser can be forced to become
+fixed-length (with a few caveats).
+For example, when we want to parse a month number without a limited length, we
+can instead represent it as "parse either two-digit or one-digit month".
+If we want to space-pad a month number to, say, three digits, we can build
+this parser:
+
+```
+One of:
+* Three spaces, then nothing as the month number,
+* Two spaces, then one-digit month number,
+* One space, then two-digit month number,
+* Three or more digits as a month number.
+```
+
+The first and the last branches are impossible to, so we can instead just
+define the desired parser as ` ( m|mm)`, where `m` is *exactly* one digit long
+and `mm` is *exactly* two digits long.
+
+This can be generalized to the full case of parsing, which is, for the subset of
+regular languages we're dealing with, just the recursive definition
+```
+Parser := Operations, followed by
+          one of several parsers
+```
+
+We can prove that all parsers can return the range in which their lengths lie
+and even split into different subparsers depending on their length, again, with
+a few caveats.
+
+* A basic operation can always be limited to fit at most a fixed length.
+  This can be proved by enumerating all the basic operations we support.
+  - A constant string. There's only a single way to parse it.
+  - A number span. If there is a flexible-width field, the admissible lengths
+    and parses are `[minWidth; maxWidth]`, otherwise the length is precisely
+    defined.
+  - A numeric sign. It's exactly one char.
+  - A trie. We can take its sections, each of which corresponds to a specific
+    length. I wonder if tries with fixed-length elements can be implemented more
+    efficiently.
+  - And that's it!
+* A sequence of several operations has the combined length equal to the
+  Carthesian product of the sets of lengths of individual operations.
+  Therefore, a basic parser that's not followed by any subparser can be split
+  into parsers of fixed length.
+* By induction, let's assume that the tails of the parser can be split into
+  fixed lengths. Then a parser followed by other parsers also can: we can treat
+  the whole tail as a single operation whose lengths are the union of lengths
+  of the alternatives.
+
+What are the caveats? It's the fact that some fields have unbounded length.
+For example, it's not inconcievable that we would allow parsing 10+ digit
+fractional parts of a second. Naively employing this proof would lead us to
+splitting `second(); char('.'); secondFraction(minLength = 1, maxLength = null)`
+into an infinite number of parsers of different lengths.
+
+However, there's only a single reason for us to do this, that is, to implement
+padding to a specific length. Once this length is exceeded, we're no longer
+interested in what happens. For example, to space-pad `1.1234...` to 11 chars,
+we only need to consider the cases
+```
+ 1.12345678
+  1.1234567
+   1.123456
+    1.12345
+     1.1234
+      1.123
+       1.12
+        1.1
+```
+
+The rest of the cases are just
+`second(); char('.'); secondFraction(minLength = 9)`, with no need to split or
+space-pad anything.
+
+It may seem to be a crazy expensive operation.
+If we want to space-pad something to $n$ characters that uses $m$ operations,
+how many branching subparsers we will create in the worst case?
+
+```
+For i := 1..n chars of space padding,
+  for every assignment of chars to m operations that sums to (n - i),
+    there is a single parser.
+```
+
+I forgot the name of the combinatoric primitive that explains the number of
+tuples $(a_1, a_2, ..., a_m)$ with $0 \le a_j$ that sum to $i$. Something like
+Stirling numbers, right?
