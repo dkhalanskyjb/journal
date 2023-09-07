@@ -1,0 +1,426 @@
+Naming of the datetime formatting facilities
+============================================
+
+Entry points
+------------
+
+### Sets of rules for parsing and formatting a thing
+
+```kotlin
+package kotlinx.datetime.format
+
+interface Format<T> {
+    fun format(value: T): String
+    fun formatTo(appendable: Appendable, value: T)
+    fun parse(input: CharSequence): T
+    fun parseOrNull(input: CharSequence): T?
+}
+```
+
+#### Prior art
+
+##### `java.time.format.DateTimeFormatter`
+
+```kotlin
+class DateTimeFormatter(
+  private val printerParser: DateTimePrinterParser,
+  var locale: Locale = Locale.DEFAULT,
+  var chronology: Chronology = IsoChronology,
+  // Symbols for `+`, `-`, `0`, and `.`
+  var decimalStyle: DecimalStyle = DecimalStyle.STANDARD,
+  // how to interpret out-of-bounds and missing data
+  var resolverStyle: ResolverStyle = ResolverStyle.SMART,
+  // which fields to use when resolving dates
+  var resolverFields: Set<TemporalField> = emptySet(),
+  // which time zone to use for resolving if none was parsed
+  var timeZone: ZoneId? = null,
+) {
+    companion object {
+        fun ofPattern(pattern: String, locale: Locale = Locale.DEFAULT)
+        fun ofLocalizedDate(dateStyle: FormatStyle)
+        fun ofLocalizedTime(timeStyle: FormatStyle)
+        fun ofLocalizedDateTime(dateStyle: FormatStyle, timeStyle: FormatStyle)
+    }
+
+    fun toFormat(parseQuery: TemporalQuery<*>? = null): Format
+
+    fun format(temporal: TemporalAccessor): String
+    fun formatTo(temporal: TemporalAccessor, appendable: Appendable)
+    fun parse(text: CharSequence, position: ParsePosition = ParsePosition(0)): TemporalAccessor
+    fun<T> parse(text: CharSequence, query: TemporalQuery<T>): T
+    fun parseBest(text: CharSequence, vararg queries: TemporalQuery<*>): TemporalAccessor
+}
+```
+
+##### `java.text.SimpleDateFormat: java.text.DateFormat: java.text.Format`
+
+<https://docs.oracle.com/en/java/javase/16/docs/api/java.base/java/text/Format.html>
+```kotlin
+abstract class Format {
+    abstract fun format(obj: Any): String
+    abstract fun format(obj: Any, toAppendTo: StringBuffer, pos: FieldPosition): StringBuffer
+    abstract fun formatToCharacterIterator(obj: Any): AttributedCharacterIterator
+    abstract fun parseObject(source: String, pos: ParsePosition = ParsePosition(0)): Any
+}
+```
+
+<https://docs.oracle.com/en/java/javase/16/docs/api/java.base/java/text/DateFormat.html>
+```kotlin
+class DateFormat: Format() {
+    companion object {
+        val AM_PM_FIELD: Int
+        val DATE_FIELD: Int
+        val HOUR_OF_DAY0_FIELD: Int // 24-hour
+        val HOUR1_FIELD: Int // 12-hour
+        // ...
+        val DEFAULT: Int
+        val LONG: Int
+        val MEDIUM: Int
+        val SHORT: Int
+    }
+
+    abstract var numberFormat: NumberFormat
+
+    abstract var calendar: Calendar
+
+    var lenient: Boolean
+      get() = calendar.isLenient
+      set(isLenient: Boolean) { calendar.isLenient = isLenient }
+
+    var timeZone: TimeZone
+      get() = calendar.timeZone
+      set(zone: TimeZone) { calendar.timeZone = zone }
+}
+```
+
+<https://docs.oracle.com/en/java/javase/16/docs/api/java.base/java/text/SimpleDateFormat.html>
+
+```kotlin
+class SimpleDateFormat(
+    var pattern: String,
+    var formatSymbols: DateFormatSymbols = Locale.getDefault(Locale.Category.FORMAT)
+): DateFormat() {
+  var twoDigitYearStart: Date
+
+  // localize-specific, user-friendly way to define patterns.
+  // Not documented, and seemingly not actually used.
+  // Maybe it converts dots to commas in some locales?
+  var localizedPattern: String
+    get() = TODO(pattern)
+    set(pattern: String) { pattern = TODO() }
+}
+```
+
+##### `System.Globalization.DateTimeFormatInfo: System.IFormatProvider`
+
+```kotlin
+package System.Globalization
+
+class DateTimeFormatInfo {
+    var AbbreviatedDayNames: Array<String>
+    var AbbreviatedMonthNames: Array<String>
+    // ...
+    var MonthDayPattern: String
+    var ShortDatePattern: String
+    var YearMonthPattern: String
+    // ...
+    val RFC1123Pattern: String
+}
+
+dateTime.toString("dd, MM") // 06, 09
+dateTime.toString(DateTimeFormatInfo.CurrentInfo) // 06/09
+TimeOnly.parse("23:34:12", DateTimeFormatInfo.CurrentInfo)
+TimeOnly.parseExact("23:34:12 AM", "hh:mm:ss tt", DateTimeFormatInfo.CurrentInfo)
+```
+
+```kotlin
+package System
+
+interface IFormatProvider {
+    fun <T> GetFormat(cls: Class<T>): T?
+}
+```
+
+##### `kotlin.io.encoding.Base64`
+
+```kotlin
+fun <A : Appendable> encodeToAppendable(
+    source: ByteArray,
+    destination: A,
+    startIndex: Int = 0,
+    endIndex: Int = source.size
+): A
+```
+
+##### `kotlinx.serialization.KSerializer`
+
+```kotlin
+abstract fun deserialize(decoder: Decoder): T
+abstract fun serialize(encoder: Encoder, value: T): Unit
+```
+
+#### Things to decide
+
+* Package name.
+* The interface name.
+* Type parameter: `T`, `T: Any`?
+* `format(value: T): String`: `format` vs `formatted`, `value` vs `input`, etc.
+* `formatTo(appendable: Appendable, value: T): Unit`
+  vs `<A> formatToAppendable(appendable: A, value: T): A`,
+  `appendable` vs `destination`, argument order.
+* `parse(input: CharSequence): T`?
+* `parseOrNull(input: CharSequence): T?`?
+
+
+### Building datetype-specific sets of rules for parsing and formatting
+
+```kotlin
+package kotlinx.datetime
+
+class LocalTime {
+    object Format; // :(, can't put common code into expect classes sensibly
+}
+
+public operator fun LocalTime.Format.invoke(builder: TimeFormatBuilderFields.() -> Unit): kotlinx.datetime.format.Format<LocalTime>
+```
+
+#### Things to decide
+
+* Are extension functions ok, or do we have to copy-paste code on all platforms?
+* The name `Format`: not nice if it conflicts with `Format<T>`.
+
+### Predefined constants
+
+```kotlin
+package kotlinx.datetime
+
+/**
+ * ISO 8601 extended format, used by [LocalTime.toString] and [LocalTime.parse].
+ *
+ * Examples: `12:34`, `12:34:56`, `12:34:56.789`.
+ */
+val LocalTime.Format.ISO: Format<LocalTime>
+
+/**
+ * ISO 8601 basic format.
+ *
+ * Examples: `T1234`, `T123456`, `T123456.789`.
+ */
+val LocalTime.Format.ISO_BASIC: Format<LocalTime>
+
+/**
+ * ISO 8601 extended format, which is the format used by [LocalDate.toString] and [LocalDate.parse].
+ *
+ * Examples of dates in ISO 8601 format:
+ * - `2020-08-30`
+ * - `+12020-08-30`
+ * - `0000-08-30`
+ * - `-0001-08-30`
+ */
+public val LocalDate.Format.ISO: Format<LocalDate>
+
+/**
+ * ISO 8601 basic format.
+ *
+ * Examples of dates in ISO 8601 basic format:
+ * - `20200830`
+ * - `+120200830`
+ * - `00000830`
+ * - `-00010830`
+ */
+public val LocalDate.Format.ISO_BASIC: Format<LocalDate>
+
+/**
+ * ISO 8601 extended format, which is the format used by [LocalDateTime.toString] and [LocalDateTime.parse].
+ *
+ * Examples of date/time in ISO 8601 format:
+ * - `2020-08-30T18:43`
+ * - `+12020-08-30T18:43:00`
+ * - `0000-08-30T18:43:00.500`
+ * - `-0001-08-30T18:43:00.123456789`
+ */
+public val LocalDateTime.Format.ISO: Format<LocalDateTime>
+
+/**
+ * ISO 8601 basic format.
+ *
+ * Examples of date/time in ISO 8601 basic format:
+ * - `20200830T1843`
+ * - `+120200830T184300`
+ * - `00000830T184300.500`
+ * - `-00010830T184300.123456789`
+ */
+public val LocalDateTime.Format.ISO_BASIC: Format<LocalDateTime>
+
+/**
+ * ISO 8601 extended format, which is the format used by [UtcOffset.toString].
+ *
+ * Examples of UTC offsets in ISO 8601 format:
+ * - `Z`
+ * - `+05:00`
+ * - `-17:16`
+ * - `+10:36:30`
+ */
+val UtcOffset.Format.ISO: Format<UtcOffset>
+
+/**
+ * ISO 8601 basic format.
+ *
+ * Examples of UTC offsets in ISO 8601 basic format:
+ * - `Z`
+ * - `+05`
+ * - `-1716`
+ * - `+103630`
+ *
+ * @see UtcOffset.Format.COMPACT
+ */
+val UtcOffset.Format.ISO_BASIC: Format<UtcOffset>
+
+/**
+ * A format similar to ISO 8601 basic format, but outputting `+0000` instead of `Z` for the zero offset and always
+ * requiring the minute component to be present.
+ *
+ * Examples of UTC offsets in this format:
+ * - `+0000`
+ * - `+0500`
+ * - `-1716`
+ * - `+103630`
+ *
+ * @see UtcOffset.Format.ISO_BASIC
+ */
+val UtcOffset.Format.COMPACT: Format<UtcOffset>
+
+
+/**
+ * ISO 8601 extended format for dates and times with UTC offset.
+ *
+ * Examples of valid strings:
+ * * `2020-01-01T23:59:59+01:00`
+ * * `2020-01-01T23:59:59+01`
+ * * `2020-01-01T23:59:59Z`
+ *
+ * This format uses the local date, local time, and UTC offset fields of [ValueBag].
+ *
+ * See ISO-8601-1:2019, 5.4.2.1b), excluding the format without the offset.
+ */
+val ValueBag.Format.ISO_INSTANT: Format<ValueBag>
+
+val ValueBag.Format.RFC_1123: Format<ValueBag>
+```
+
+#### Things to decide
+
+* Is it okay that these are extension values?
+* `ValueBag.Format.RFC_1123` can comfortably be defined as a non-extension value--should it also be an extension value for consistency?
+* Package name.
+* Names.
+* Should we add separate objects like `UtcOffset.Formats` (note the plural), Java-style?
+
+### Shorthands
+
+```kotlin
+package kotlinx.datetime
+
+fun LocalTime.format(format: Format<LocalTime>): String = format.format(this)
+
+fun LocalTime.Companion.parse(input: String, format: Format<LocalTime>): LocalTime = format.parse(input)
+
+// fun LocalTime.format(builder: TimeFormatBuilderFields.() -> Unit): String =
+//     LocalTime.Format(builder).format(this)
+
+// fun LocalTime.Companion.parse(input: String, builder: TimeFormatBuilderFields.() -> Unit): LocalTime =
+//     LocalTime.Format(builder).parse(input)
+```
+
+#### Things to decide
+
+* Names, input value names.
+* Input value order.
+  Note: given the signature `parse(format, input)` and asked to write some code,
+  ChatGPT made a mistake and wrote `parse("2023-03-09", format)`.
+  This is consistent with having a single `parse(input, format = ISO)` function.
+* Do we want the commented-out things?
+
+### Configuration options
+
+```kotlin
+package kotlinx.datetime.format
+
+enum class Padding {
+    NONE,
+    ZERO,
+    SPACE,
+}
+```
+
+#### Things to decide
+
+* Package name.
+* Name.
+* Variant names.
+
+### ValueBag
+
+```kotlin
+class ValueBag internal constructor {
+    companion object {}
+
+    object Format;
+
+    fun populateFrom(localTime: LocalTime)
+    fun populateFrom(localDate: LocalDate)
+    fun populateFrom(localDateTime: LocalDateTime)
+    fun populateFrom(utcOffset: UtcOffset)
+    fun populateFrom(instant: Instant, offset: UtcOffset)
+
+    var year: Int?
+    var monthNumber: Int?
+
+    var month: Month?
+        get() = monthNumber?.let { Month(it) }
+        set(value) {
+            monthNumber = value?.number
+        }
+
+    var dayOfMonth: Int?
+
+    var dayOfWeek: DayOfWeek?
+        get() = contents.date.isoDayOfWeek?.let { DayOfWeek(it) }
+        set(value) {
+            contents.date.isoDayOfWeek = value?.isoDayNumber
+        }
+
+    var hour: Int?
+    var hourOfAmPm: Int?
+    var isPm: Boolean?
+    var minute: Int?
+    var second: Int?
+    var nanosecond: Int?
+
+    var offsetIsNegative: Boolean?
+    var offsetTotalHours: Int?
+    var offsetMinutesOfHour: Int?
+    var offsetSecondsOfMinute: Int?
+
+    var timeZoneId: String?
+
+    fun toUtcOffset(): UtcOffset
+    fun toLocalDate(): LocalDate
+    fun toLocalTime(): LocalTime
+    fun toLocalDateTime(): LocalDateTime
+
+    /**
+     * Builds an [Instant] from the fields in this [ValueBag].
+     *
+     * Uses the fields required for [toLocalDateTime] and [toUtcOffset].
+     *
+     * Almost always equivalent to `toLocalDateTime().toInstant(toUtcOffset())`, but also accounts for cases when
+     * the year is outside the range representable by [LocalDate] but not outside the range representable by [Instant].
+     */
+    fun toInstantUsingUtcOffset(): Instant
+}
+
+fun Format<ValueBag>.format(block: ValueBag.() -> Unit): String =
+    format(ValueBag().apply { block() })
+```
+

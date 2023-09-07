@@ -336,6 +336,8 @@ fun FormatBuilder.appendIsoDate() {
 
 localDate.format { appendIsoDate() }
 localDateTime.format { appendIsoDate() }
+localTime.format { appendIsoDate() } // will crash in runtime
+val format = LocalTime.Format { appendIsoDate() } // will crash in runtime
 ```
 
 The approach taken by Java.
@@ -354,10 +356,98 @@ Cons:
   this seems only inconvenient, not dangerous, given the usage patterns.
 * Autocompletion is cluttered with a priori useless things.
 
-### Option 3: a hierarchy of builders
+### Option 3: one builder for each type
 
-A separate builder for each type and interfaces that define shared
-functionality:
+```
+LocalTimeFormatBuilder
+LocalDateFormatBuilder
+LocalDateTimeFormatBuilder
+...
+```
+
+Pros:
+
+* Only the relevant definitions are present.
+* Looks quite simple.
+
+Cons:
+
+* A bunch of duplicated methods documentation.
+
+### (**Winner**) Option 4: a hierarchy of builders
+
+A separate interface for each piece of shared functionality:
+
+```
+                  / TimeContainerFormatBuilder ----
+                 /                                 \
+                /                                   --- DateTimeContainerFormatBuilder -\
+               /                                   /                                     -- ZonedDateTimeFormatBuilder
+FormatBuilder ----- DateContainerFormatBuilder ----                                     /
+               \                                                                       /
+                \                                                                     /
+                 \- UtcOffsetContainerFormatBuilder ---------------------------------/
+```
+
+
+Examples:
+
+* `appendLiteral` is in `FormatBuilder`,
+* `appendDayOfWeekName` is in `DateContainerFormatBuilder`,
+* `TimeContainerFormatBuilder` is the receiver in `localTime.format { }`.
+
+Technical note: if we go the road of the traditional builders
+(`LocalDateTimeFormatBuilder().appendHour().appendLiteral(':').appendMinute().build()`)
+**or** if we go the DSL road and decide to have nested sections
+(`build { appendOptonal { appendSpacePadded(2) { appendSeconds() } } }`), the
+functions need to know the specific type of the builder:
+
+```kotlin
+fun TimeContainerFormatBuilder.appendSeconds(minDigits: Int? = null): TheActualBuilder
+fun FormatBuilder.appendOptional(block: TheActualBuilder.() -> Unit)
+```
+
+One option is to use self-types:
+
+```kotlin
+interface FormatBuilder<out Self> {
+    fun appendOptional(block: Self.() -> Unit)
+}
+```
+
+Another option is to circumvent the type system, using the fact that we know the
+full set of builder implementations in advance:
+
+```kotlin
+@Suppress("UNCHECKED_CAST")
+public fun <T: FormatBuilder> T.appendOptional(block: T.() -> Unit): Unit = when (this) {
+    is AbstractFormatBuilder<*, *> -> appendOptionalImpl(block as (AbstractFormatBuilder<*, *>.() -> Unit))
+    else -> throw IllegalStateException("impossible")
+}
+```
+
+Pros:
+
+* Type-safe.
+* Only the things that make sense are available.
+
+Cons:
+
+* A bit complex.
+* In `UtcOffsetContainerFormatBuilder`, we can't have `appendHours`, as in
+  `ZonedDateTimeFormatBuilder`, `appendHour` is already taken by
+  `TimeContainerFormatBuilder`, which would lead to much confusion.
+  Therefore, we need to have methods like `appendOffsetHours` even in
+  `UtcOffset.Format { ... }`, where we could not have meant anything else.
+* In general, any behavior that we may want to introduce for `LocalTime` formats
+  explicitly will also have to be present in `LocalDateTime` and
+  `ZonedDateTime` formats due to the substitution principle.
+
+### Option 5: a complete hierarchy of builders
+
+The same as the previous option, but each data type gets its own builder
+implementation as a leaf of the hierarchy:
+
 ```
                                                     ________________________________
                                                    /                                \
@@ -371,35 +461,18 @@ FormatBuilder ----- DateContainerFormatBuilder ------ LocalDateFormatBuilder    
                  \- UtcOffsetContainerFormatBuilder -- UtcOffsetFormatBuilder ------/
 ```
 
-Examples:
-* `appendLiteral` is in `FormatBuilder`,
-* `appendDayOfWeekName` is in `DateContainerFormatBuilder`,
-* `LocalTimeFormatBuilder` is the receiver in `localTime.format { }`.
-
-Technical note: if we go the road of the traditional builders
-(`LocalDateTimeFormatBuilder().appendHour().appendLiteral(':').appendMinute().build()`)
-**or** if we go the DSL road and decide to have nested sections
-(`build { appendOptonal { appendSpacePadded(2) { appendSeconds() } } }`), the
-functions need to know the specific type of the builder:
-```kotlin
-fun TimeContainerFormatBuilder.appendSeconds(minDigits: Int? = null): TheActualBuilder
-fun FormatBuilder.appendOptional(block: TheActualBuilder.() -> Unit)
-```
-For this, looks like the only option is to use self-types:
-```kotlin
-interface FormatBuilder<out Self> {
-    fun appendOptional(block: Self.() -> Unit)
-}
-```
+The receiver of `LocalTime.Format` would be `LocalTimeFormatBuilder`.
 
 Pros:
-* Type-safe.
-* Only the things that make sense are available.
+
+* The version most reliable for future extensibility.
 * Still extensible in theory, though prohibitively unpleasant in practice, given
   the need to figure out the interfaces.
 
 Cons:
+
 * Quite a complex thing to expose. The documentation becomes non-browsable.
+
 
 Interfaces for defining field format directives
 -----------------------------------------------

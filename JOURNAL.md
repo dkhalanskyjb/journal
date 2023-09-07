@@ -5530,3 +5530,19 @@ For i := 1..n chars of space padding,
 I forgot the name of the combinatoric primitive that explains the number of
 tuples $(a_1, a_2, ..., a_m)$ with $0 \le a_j$ that sum to $i$. Something like
 Stirling numbers, right?
+Stirling numbers of the second kind $S(n, k)$ describe the number of ways to
+assign the $n$'th digit to any of the $k$ operations. Not exactly what I want.
+Let me try to derive the formula on my own and see what it is.
+
+If there are $k$ characters to fill and $m$ operations, then the number of ways
+to do that is $M(m, 0) = 1$,
+$M(0, k + 1) = 0$, $M(m + 1, k + 1) = \sum_{i = 0}^{k + 1} M(m, i)$.
+If there are no more characters to assign, there's only one way to do it: make
+all the remaining operations zero-width.
+If there are still characters but no more operations, that's sad, as we won't
+be able to fulfill the obligation. If there are both characters and operations
+yet, then the next operation can eat zero characters, all of them, or anything
+in-between.
+
+This actually looks like some classic dynamic programming task. Maybe there's
+no sensible closed-formula solution.
