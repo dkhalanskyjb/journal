@@ -308,6 +308,68 @@ val ValueBag.Format.ISO_INSTANT: Format<ValueBag>
 val ValueBag.Format.RFC_1123: Format<ValueBag>
 ```
 
+#### Prior art
+
+Java:
+
+```kotlin
+// The ISO date formatter that formats or parses a date without an offset, such as '20111203'.
+DateTimeFormatter.BASIC_ISO_DATE
+// The ISO date formatter that formats or parses a date with the offset if available, such as '2011-12-03' or '2011-12-03+01:00'.
+DateTimeFormatter.ISO_DATE
+// The ISO-like date-time formatter that formats or parses a date-time with the offset and zone if available, such as '2011-12-03T10:15:30', '2011-12-03T10:15:30+01:00' or '2011-12-03T10:15:30+01:00[Europe/Paris]'.
+DateTimeFormatter.ISO_DATE_TIME
+// The ISO instant formatter that formats or parses an instant in UTC, such as '2011-12-03T10:15:30Z'.
+DateTimeFormatter.ISO_INSTANT
+// The ISO date formatter that formats or parses a date without an offset, such as '2011-12-03'.
+DateTimeFormatter.ISO_LOCAL_DATE
+// The ISO date-time formatter that formats or parses a date-time without an offset, such as '2011-12-03T10:15:30'.
+DateTimeFormatter.ISO_LOCAL_DATE_TIME
+// The ISO time formatter that formats or parses a time without an offset, such as '10:15' or '10:15:30'.
+DateTimeFormatter.ISO_LOCAL_TIME
+// The ISO date formatter that formats or parses a date with an offset, such as '2011-12-03+01:00'.
+DateTimeFormatter.ISO_OFFSET_DATE
+// The ISO date-time formatter that formats or parses a date-time with an offset, such as '2011-12-03T10:15:30+01:00'.
+DateTimeFormatter.ISO_OFFSET_DATE_TIME
+// The ISO time formatter that formats or parses a time with an offset, such as '10:15+01:00' or '10:15:30+01:00'.
+DateTimeFormatter.ISO_OFFSET_TIME
+// The ISO date formatter that formats or parses the ordinal date without an offset, such as '2012-337'.
+DateTimeFormatter.ISO_ORDINAL_DATE
+// The ISO time formatter that formats or parses a time, with the offset if available, such as '10:15', '10:15:30' or '10:15:30+01:00'.
+DateTimeFormatter.ISO_TIME
+// The ISO date formatter that formats or parses the week-based date without an offset, such as '2012-W48-6'.
+DateTimeFormatter.ISO_WEEK_DATE
+// The ISO-like date-time formatter that formats or parses a date-time with offset and zone, such as '2011-12-03T10:15:30+01:00[Europe/Paris]'.
+DateTimeFormatter.ISO_ZONED_DATE_TIME
+// The RFC-1123 date-time formatter, such as 'Tue, 3 Jun 2008 11:05:30 GMT'.
+DateTimeFormatter.RFC_1123_DATE_TIME
+```
+
+```go
+const (
+	Layout      = "01/02 03:04:05PM '06 -0700" // The reference time, in numerical order.
+	ANSIC       = "Mon Jan _2 15:04:05 2006"
+	UnixDate    = "Mon Jan _2 15:04:05 MST 2006"
+	RubyDate    = "Mon Jan 02 15:04:05 -0700 2006"
+	RFC822      = "02 Jan 06 15:04 MST"
+	RFC822Z     = "02 Jan 06 15:04 -0700" // RFC822 with numeric zone
+	RFC850      = "Monday, 02-Jan-06 15:04:05 MST"
+	RFC1123     = "Mon, 02 Jan 2006 15:04:05 MST"
+	RFC1123Z    = "Mon, 02 Jan 2006 15:04:05 -0700" // RFC1123 with numeric zone
+	RFC3339     = "2006-01-02T15:04:05Z07:00"
+	RFC3339Nano = "2006-01-02T15:04:05.999999999Z07:00"
+	Kitchen     = "3:04PM"
+	// Handy time stamps.
+	Stamp      = "Jan _2 15:04:05"
+	StampMilli = "Jan _2 15:04:05.000"
+	StampMicro = "Jan _2 15:04:05.000000"
+	StampNano  = "Jan _2 15:04:05.000000000"
+	DateTime   = "2006-01-02 15:04:05"
+	DateOnly   = "2006-01-02"
+	TimeOnly   = "15:04:05"
+)
+```
+
 #### Things to decide
 
 * Is it okay that these are extension values?
