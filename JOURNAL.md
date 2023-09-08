@@ -5546,3 +5546,225 @@ in-between.
 
 This actually looks like some classic dynamic programming task. Maybe there's
 no sensible closed-formula solution.
+
+
+2023-09-08
+----------
+
+Am I not a good enough IDE user, or am I not the IDE's target audience? Maybe
+I should watch some YouTube videos about, like,
+"top 10 tricks for IDE productivity" or something?
+
+Let's consider the situation I'm in now. I have a *very* simple, painfully
+mechanical task. There is a bunch of extension functions for `expect` classes,
+and I want to move them inside the classes so that they are proper members,
+doing some slight renaming in the process.
+
+Example:
+
+```kotlin
+// common code
+
+expect class UtcOffset {
+    companion object {
+    }
+
+    object Format;
+}
+
+val UtcOffset.Format.ISO: DateTimeFormat<UtcOffset> = ISO_OFFSET
+
+fun UtcOffset.Format.invoke(
+    builder: UtcOffsetFormatBuilder.() -> Unit
+): DateTimeFormat<UtcOffset> =
+    UtcOffsetFormat.build(builder)
+
+// jvm, js, native
+
+actual class UtcOffset {
+    companion object {
+    }
+
+    object Format;
+}
+```
+
+must be translated to
+
+```kotlin
+// common code
+
+expect class UtcOffset {
+    companion object {
+        fun Format(
+            builder: UtcOffsetFormatBuilder.() -> Unit
+        ): DateTimeFormat<UtcOffset>
+    }
+
+    object Formats {
+        val UtcOffset.Format.ISO: DateTimeFormat<UtcOffset>
+    }
+}
+
+
+// jvm, js, native
+
+actual class UtcOffset {
+    companion object {
+        fun Format(
+            builder: UtcOffsetFormatBuilder.() -> Unit
+        ): DateTimeFormat<UtcOffset> = UtcOffsetFormat.build(builder)
+    }
+
+    object Formats {
+        val UtcOffset.Format.ISO: DateTimeFormat<UtcOffset> = ISO_OFFSET
+    }
+}
+```
+
+What does the IDE allow me to do?
+
+When I ask it for the actions I can perform on `invoke`, it proposes to convert
+it to the block body. No mention of moving it to a non-extension method.
+
+Googling "convert extension to member," I get this:
+<https://www.jetbrains.com/help/rider/Refactorings__Convert_Extension_Method_to_Plain_Static.html>
+It doesn't work, because it's a different IDE for a different language, even if
+it is by the same company.
+
+There is also an open issue:
+<https://youtrack.jetbrains.com/issue/KTIJ-10351/Refactoring-Convert-to-instance-method-for-companion-object-top-level-functions>
+I think this means I have to move `invoke` manually. Whoo, and this is simply
+*moving* things, and I need to change it more significantly than that,
+converting it from a call of the form `Format { }` where `Format` is an object
+to the form `Format { }` where `Format` is a function name.
+
+Ok, I did it manually:
+
+```kotlin
+// common code
+
+expect class UtcOffset {
+    companion object {
+        fun Format(
+            builder: UtcOffsetFormatBuilder.() -> Unit
+        ): DateTimeFormat<UtcOffset> =
+            UtcOffsetFormat.build(builder)
+    }
+
+    object Format;
+}
+
+val UtcOffset.Format.ISO: DateTimeFormat<UtcOffset> = ISO_OFFSET
+
+
+// jvm, js, native
+
+actual class UtcOffset {
+    companion object {
+    }
+
+    object Format;
+}
+```
+
+Now the IDE complains: "Expected declaration must not have a body." Yes, I know.
+Please help me fix this by copy-pasting the body I provided to the actual
+source-sets. This is a menial task, I'll be glad to let automation handle this.
+
+Querying the IDE inspections, I get "Convert to block body" once again, but
+also "Make internal." None of this is useful.
+
+Googling "Expected declaration must not have a body" verbatim, I only get
+discussions like <https://youtrack.jetbrains.com/issue/KT-42628> and
+<https://youtrack.jetbrains.com/issue/KT-20427> and
+<https://discuss.kotlinlang.org/t/why-it-is-not-possible-to-expect-only-parts-of-a-class-in-a-multiplatform-project/11237>,
+but no mentions of letting the IDE help fix this.
+
+So, is the IDE *at all* helping me with this? Yes, there is one place where it
+does: after I change the common code, in the platform-specific code, I can ask
+it to create `actual` stubs for me to fill.
+Let's count how many things I have to do to employ this functionality.
+
+* Open the platform-specific file.
+* `<F2>` to jump to the next error.
+* (One-time bonus step: oh wait, the whole file is red, re-sync Gradle)
+* `<Alt+Shift+Enter>` to implement the missing members.
+* (Bonus step: oh wait, the error message window disappeared due to me switching
+  windows, and now `<Alt+Shift+Enter>` does something else entirely, drawing
+  some arrows on top of my window with
+  "Press Enter to open, Ctrl+Enter to duplicate" (I tried pressing both of these
+  and didn't notice any effect, by the way); I should have pressed `<Alt+Enter>`
+  instead, followed by `Enter`)
+* `<F2>` again, to do the same for the companion object, then `<Alt+Enter>`,
+  then `<Enter>`.
+* Because the new members don't have the `public` visibility explicitly for
+  some reason (a mistake on the IDE's part, as I did have these modifiers in the
+  common code) and the library uses explicit API mode,
+  also do `<F2>`, `<Alt+Enter>`, `<Enter>` several more times to add
+  the `public` modifier.
+* Scroll around the file and remove the documentation that was accidentally
+  copied along with the declarations.
+
+After that, I have to search for `TODO()`, filling the stubs. The IDE also helps
+me fill the stubs by providing the autocompletion, where I consistently can find
+the definitions I'm actually looking for.
+
+Then, as I'm certainly *not* going to do this for every platform, I'm copying
+the resulting piece
+
+```kotlin
+        fun Format(
+            builder: UtcOffsetFormatBuilder.() -> Unit
+        ): DateTimeFormat<UtcOffset> = UtcOffsetFormat.build(builder)
+    }
+
+    object Formats {
+        val UtcOffset.Format.ISO: DateTimeFormat<UtcOffset> = ISO_OFFSET
+    }
+```
+
+and pasting it to the other platform files.
+
+You have to paste it just before the `}` of the companion object, not after!
+It may seem like the result would be the same--I'd have to delete one curly
+brace--but pasting this *after* seriously messes up the formatting of the file.
+
+Then, I just remove
+```kotlin
+    }
+
+    public actual object Format;
+```
+
+I'm sure that for someone out there, refactoring works. Otherwise, why would
+anyone use IDEs when a plain text editor does the job in comparable time but is
+much more predictable and reliable, with a UI that's not so laggy, without
+constant crashes and freezes, with crisp fonts on Linux
+(<https://youtrack.jetbrains.com/issue/IDEA-218458/Blurry-fonts-on-Wayland-fractional-scaling>)?
+
+Am I just being too pessimistic, which affects my perception? What if the IDE
+*does* help me a lot, but I'm so used to it that only notice the cases when it
+fails to do so? Well, in a way, maybe: I do understand that without the IDE,
+I wouldn't be able to navigate any code bases, because I'd have no idea which
+function gets actually called among the overloads, conflicting names, etc., but
+I think that's the result of the Kotlin style of
+"hey, we have an IDE, don't worry about being able to navigate manually."
+I don't think it takes much effort to make code navigable and readable without
+an IDE, but one does have to keep it in mind. So, when your colleagues are using
+an IDE and a language does not enforce readability, you're at a disadvantage
+if you're not also using an IDE.
+
+But is that really it? Is an IDE just like Apple's ecosystem, where you wake up
+several years after buying an iPhone and notice that your whole electronic life
+now revolves around Apple to the point where it's uncomfortable to use anything
+else even when that something else is not actually worse in any way?
+
+Tell you what: here's my new-work-year resolution. I'll try for a month to
+notice (and record) every moment when the IDE helps me, and I'll also try to
+actively research whether a thing I did manually could be done automatically
+faster. Either I'll gain proficiency and obtain new appreciation for IDEA, or
+I'll just drop it for good. In any case, this multi-year cycle of constant
+irritation will stop. Maybe I'll start a separate journal in this repository
+where I'll record how much the IDE assists me. I'll also record the cases where
+it actively hindered me and a plain text editor would do a better job.
