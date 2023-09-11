@@ -197,6 +197,15 @@ General pros of supporting this format in some form:
   `DateTimeFormatter`.
   - When asked for Kotlin's format strings, it starts hallucinating.
 
+> **Resolution**: (partial) after not reaching a conclusion, we created an
+> online poll in Slack, and here are the results: more than a half responded
+> with "What format strings? I just want some concise builders," about a quarter
+> wanted the Java format, and less than a quarter were for the new format.
+> The results are clear: Java's API should not be prominent, but it should be
+> accessible. Some people under that poll replied that they used Java's format
+> strings to configure their code dynamically. We'll need to decide whether we
+> support this use case and how well.
+
 ### Option 1: only add a deprecated method
 
 ```kotlin
