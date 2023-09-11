@@ -323,6 +323,13 @@ Cons:
   how the skeleton gets adapted to the specified locale (not only by reordering,
   but also adding or removing fields), also more tough to debug.
 
+> **Resolution**: in an online poll, most people voted for builders. Also,
+> in theory, we *could* introduce any language we wanted, to the point of
+> packing the whole of Kotlin into a string format. The problem is, we would
+> just be trading a language with a proper compiler and a known set of rules for
+> a DSL that, while concise, would only be needed occasionally, not warranting
+> gaining proficiency in it.
+
 ### Option 2: a single builder for everything
 
 ```kotlin
@@ -356,6 +363,11 @@ Cons:
   this seems only inconvenient, not dangerous, given the usage patterns.
 * Autocompletion is cluttered with a priori useless things.
 
+> **Resolution**: these builders are not going to be accessed manually, they
+> will mostly be used as receivers. Hiding these entry points would not
+> significantly simplify the API, but could add a bit of friction for the people
+> confused about which data structures contain which fields.
+
 ### Option 3: one builder for each type
 
 ```
@@ -373,6 +385,10 @@ Pros:
 Cons:
 
 * A bunch of duplicated methods documentation.
+
+> **Resolution**: as the next option shows, it's possible to introduce only a
+> couple of extra entities and avoid the duplicated non-abstractable code
+> entirely, so no reason not to go in that direction.
 
 ### (**Winner**) Option 4: a hierarchy of builders
 
@@ -443,6 +459,11 @@ Cons:
   explicitly will also have to be present in `LocalDateTime` and
   `ZonedDateTime` formats due to the substitution principle.
 
+> **Resolution**: seems to be the best approach. Having type-safe builders for
+> every data type is nice for autocompletion and static error checking, and it
+> seems like no functionality *that is actually needed* is lost by not
+> introducing separate interfaces for all classes.
+
 ### Option 5: a complete hierarchy of builders
 
 The same as the previous option, but each data type gets its own builder
@@ -458,7 +479,8 @@ implementation as a leaf of the hierarchy:
 FormatBuilder ----- DateContainerFormatBuilder ------ LocalDateFormatBuilder           /
                \                                   \__________________________________/
                 \                                                                    /
-                 \- UtcOffsetContainerFormatBuilder -- UtcOffsetFormatBuilder ------/
+                 \- UtcOffsetContainerFormatBuilder --------------------------------/
+                                                    \- UtcOffsetFormatBuilder 
 ```
 
 The receiver of `LocalTime.Format` would be `LocalTimeFormatBuilder`.
@@ -472,6 +494,17 @@ Pros:
 Cons:
 
 * Quite a complex thing to expose. The documentation becomes non-browsable.
+
+> **Resolution**: it's unlikely that we'll need this sort of extensibility.
+> Yes, `UtcOffset.Format { appendHour() }` instead of `appendOffsetHour` becomes
+> possible, but, first, manually constructing UTC offset formats should be a
+> very infrequent use case, and second, `appendOffsetHour` is needed anyway for
+> `ZonedDateTimeFormatBuilder`, adding to the confusion.
+> This is just not worth the additional several classes that would need to be
+> introduced.
+> There is also a possibility of having scoped subbuilders like
+> `time { hour() }; offset { hour() }`, but most of the time, it's just noise:
+> `day` is clearly part of a `date`, no need to clarify that in code.
 
 
 Interfaces for defining field format directives
@@ -556,7 +589,7 @@ Additionally, there's are needs to parse malformed data.
 
 How to represent it?
 
-### Option 1: one class with all the values, but optionally
+### (**WINNER**) Option 1: one class with all the values, but optionally
 
 We can introduce a huge class that serves as just a bunch of values related to
 dates and times:
@@ -663,6 +696,14 @@ Cons:
   even though `toLocalTime()` works the same on them, and people don't typically
   need to check the value of `second` manually. Actual equality behaves
   differently from the *practically observable* equality.
+  * We can just provide a reliable `toString`, which can be used for comparison
+    as well. The use case of comparing two `ValueBag` instances doesn't seem all
+    that useful.
+
+> **Resolution**: having a proper, centralized entry point for the tricky use
+> cases is valuable. This way, the normal use cases are separated from the
+> tricky ones and the tricky ones don't pollute the API surface that will be
+> accessed the majority of time.
 
 ### Option 2: Clojure's pride, the Map
 
@@ -718,4 +759,26 @@ Cons:
   `Format<*>` may be confusing entry points that are required with this
   approach if there are other, better-typed entry points.
 * Shuffling maps may have a bit more overhead.
+* `Format<LocalDate>.parseUnresolved` and `Format<LocalDateTime>.parseUnresolved`
+  would behave exactly the same way for a format like `yyyy-MM-dd`, making the
+  type bound meaningless for that case and muddying its role.
+  `Format<ValueBag>.parse` cleanly links the output to the type boundary.
+* If we decide to add `find` and `findAll`, we may also want to add
+  `findUnresolved` and `findAllUnresolved`, whereas with `ValueBag`,
+  they will be available automatically, and with clear behavior.
+* `DateTimePeriod`’s fields don’t fit with the `DateTimeFields` at all, and
+  neither does it make sense for `Format.build` to be able to produce formats
+  for both. This probably means that `DateTimePeriod` will have to get its own
+  separate `PeriodFormat` class with the exact same behavior, as
+  `parseUnresolved` with the given signature will just not work.
+    * Though we could parameterize `Format` also with the type of the fields it
+      works with, the complexity seems to big for such an edge case.
+* Forces us to preemptively decide the semantics of the fields.
 * No putting a breakpoint on field access or assignment with these things.
+
+> **Resolution**: introducing fields without a clear need for them bloats the
+> API surface more than `ValueBag` ever would. In any case, `ValueBag` could
+> implement the `Map` instance if the fields are eventually introduced, serving
+> as an optimized implementation of a datetime field container. Its methods
+> could be deprecated later. If we go the `Map` route immediately, the migration
+> path to `ValueBag` is not nearly as straightforward.
