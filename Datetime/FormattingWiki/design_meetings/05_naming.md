@@ -397,29 +397,12 @@ fun LocalTime.Companion.parse(input: String, format: Format<LocalTime>): LocalTi
 #### Things to decide
 
 * Names, input value names.
+* Extensions or members.
 * Input value order.
   Note: given the signature `parse(format, input)` and asked to write some code,
   ChatGPT made a mistake and wrote `parse("2023-03-09", format)`.
   This is consistent with having a single `parse(input, format = ISO)` function.
 * Do we want the commented-out things?
-
-### Configuration options
-
-```kotlin
-package kotlinx.datetime.format
-
-enum class Padding {
-    NONE,
-    ZERO,
-    SPACE,
-}
-```
-
-#### Things to decide
-
-* Package name.
-* Name.
-* Variant names.
 
 ### ValueBag
 
@@ -482,7 +465,194 @@ class ValueBag internal constructor {
     fun toInstantUsingUtcOffset(): Instant
 }
 
-fun Format<ValueBag>.format(block: ValueBag.() -> Unit): String =
+fun DateTimeFormat<ValueBag>.format(block: ValueBag.() -> Unit): String =
     format(ValueBag().apply { block() })
 ```
 
+Builders
+--------
+
+### Configuration options
+
+```kotlin
+package kotlinx.datetime.format
+
+enum class Padding {
+    NONE,
+    ZERO,
+    SPACE,
+}
+```
+
+#### Things to decide
+
+* Package name.
+* Name.
+* Variant names.
+
+### Name collections
+
+```kotlin
+package kotlinx.datetime.format
+
+class MonthNames(val names: List<String>) {
+    init {
+        require(names.size == 12) { "Month names must contain exactly 12 elements" }
+    }
+
+    constructor(
+        january: String, february: String, march: String, april: String, may: String, june: String,
+        july: String, august: String, september: String, october: String, november: String, december: String
+    ) :
+        this(listOf(january, february, march, april, may, june, july, august, september, october, november, december))
+
+    companion object {
+        val ENGLISH_FULL: MonthNames = MonthNames(
+            listOf(
+                "January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"
+            )
+        )
+
+        val ENGLISH_ABBREVIATED: MonthNames = MonthNames(
+            listOf(
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+            )
+        )
+    }
+}
+
+class DayOfWeekNames(val names: List<String>) {
+    init {
+        require(names.size == 7) { "Day of week names must contain exactly 7 elements" }
+    }
+
+    constructor(
+        monday: String,
+        tuesday: String,
+        wednesday: String,
+        thursday: String,
+        friday: String,
+        saturday: String,
+        sunday: String
+    ) :
+        this(listOf(monday, tuesday, wednesday, thursday, friday, saturday, sunday))
+
+    companion object {
+        val ENGLISH_FULL: DayOfWeekNames = DayOfWeekNames(
+            listOf(
+                "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+            )
+        )
+
+        val ENGLISH_ABBREVIATED: DayOfWeekNames = DayOfWeekNames(
+            listOf(
+                "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"
+            )
+        )
+    }
+}
+
+```
+
+#### Things to decide
+
+* Package.
+* Class names.
+* Should we have the additional constructors?
+* Which constants to have and what to call them.
+
+### The builder interface hierarchy
+
+* `FormatBuilder`
+* `TimeContainerFormatBuilder`, `DateContainerFormatBuilder`,
+  `UtcOffsetContainerFormatBuilder` `: FormatBuilder`
+* `DateTimeContainerFormatBuilder`
+  `: TimeContainerFormatBuilder, DateContainerFormatBuilder`
+* `ValueBagFormatBuilder`
+  `: DateTimeContainerFormatBuilder, UtcOffsetContainerFormatBuilder`
+
+`package kotlinx.datetime`
+
+### Format builder
+
+```kotlin
+@DslMarker
+annotation class DateTimeBuilder
+
+@DateTimeBuilder
+sealed interface FormatBuilder {
+    fun appendLiteral(string: String)
+}
+
+fun <T: FormatBuilder> T.alternativeParsing(
+    vararg otherFormats: T.() -> Unit,
+    mainFormat: T.() -> Unit
+): Unit
+
+fun <T: FormatBuilder> T.appendOptional(
+    onZero: String = "",
+    block: T.() -> Unit
+): Unit
+
+fun FormatBuilder.appendLiteral(char: Char): Unit =
+    appendLiteral(char.toString())
+```
+
+### Date format builder
+
+```kotlin
+sealed interface DateFormatBuilder : FormatBuilder {
+    fun appendYear(padding: Padding = Padding.ZERO)
+    fun appendYearTwoDigits(base: Int)
+    fun appendMonthNumber(padding: Padding = Padding.ZERO)
+    fun appendMonthName(names: MonthNames)
+    fun appendDayOfMonth(padding: Padding = Padding.ZERO)
+    fun appendDayOfWeek(names: DayOfWeekNames)
+    fun appendDate(dateFormat: DateTimeFormat<LocalDate>)
+}
+```
+
+### Time format builder
+
+```kotlin
+sealed interface TimeFormatBuilderFields : FormatBuilder {
+    fun appendHour(padding: Padding = Padding.ZERO)
+    fun appendAmPmHour(padding: Padding = Padding.ZERO)
+    fun appendAmPmMarker(amString: String, pmString: String)
+    fun appendMinute(padding: Padding = Padding.ZERO)
+    fun appendSecond(padding: Padding = Padding.ZERO)
+    fun appendSecondFraction(minLength: Int? = null, maxLength: Int? = null)
+    fun appendTime(format: DateTimeFormat<LocalTime>)
+}
+```
+
+### Offset format builder
+
+```kotlin
+sealed interface UtcOffsetFormatBuilderFields : FormatBuilder {
+    // also includes the sign
+    fun appendOffsetTotalHours(padding: Padding = Padding.ZERO)
+    fun appendOffsetMinutesOfHour(padding: Padding = Padding.ZERO)
+    fun appendOffsetSecondsOfMinute(padding: Padding = Padding.ZERO)
+    fun appendOffset(format: DateTimeFormat<UtcOffset>)
+}
+```
+
+### Datetime format builder
+
+```kotlin
+sealed interface DateTimeFormatBuilder : DateFormatBuilder, TimeFormatBuilderFields {
+    fun appendDateTime(format: DateTimeFormat<LocalDateTime>)
+}
+```
+
+### Value bag format builder
+
+```kotlin
+sealed interface ValueBagFormatBuilder : DateTimeFormatBuilder, UtcOffsetFormatBuilderFields {
+    fun appendTimeZoneId()
+    fun appendValueBag(format: DateTimeFormat<ValueBag>)
+}
+```
