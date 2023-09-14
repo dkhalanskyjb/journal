@@ -87,3 +87,124 @@ and IdeaVim's `.` to repeat the previous command (in this case, it was
 prepending `X.`) worked well this time. Though this is more of a hack and not
 a structured solution: when I have to *append* something to the place with an
 error, it doesn't work nearly as well.
+
+---
+
+I used the IDE just now to launch a specific test. A neat feature.
+
+---
+
+I want to find the places in a codebase where a `Deprecated.HIDDEN` declaration
+is preceded by a docstring. In the console, I can do it roughly this way:
+
+```
+git grep -B3 DeprecationLevel.HIDDEN | grep -F '*/' | sed 's/\(.\+.kt\).*/\1/g' | sort -u
+```
+
+It finds the mentions of `DeprecationLevel.HIDDEN`, takes the three lines above
+that mention (in order to skip some other declarations), finds the
+comment-ending sequence `*/`, leaves out the specific matches, keeping only the
+filenames, and produces a sorted list of them.
+
+This is very hacky. I'd certainly like to employ a more structured approach.
+Something like `comment annotation* @ReplaceWith(DeprecationLevel.HIDDEN)`.
+
+The IDE contains the feature just like that: a structured search (and replace).
+Let's try it out, I never did so before.
+
+The window for writing my search expression helpfully autocompletes. So,
+"comment"...
+
+* "Comments (Java search template)"
+* "Comments containing a given word (Java search template)"
+* "Comments containing a given word (Kotlin search template)"
+
+I wonder what Java search templates are doing here, given that I explicitly set
+the language to Kotlin. Also, no "Comments (Kotlin search template)"?
+Won't Java's search template work?.. No, it won't, it just returns Java files.
+
+Ok, "Comments containing a given word (Kotlin search template)" it is, with the
+word being "a":
+
+```
+// $before$ a $after$
+```
+
+"No modifiers added for `$after$`" What? Alright, doesn't matter, my needs are
+fairly simple.
+
+Next, "Annotations".
+
+Wait, why does choosing "Annotations (Kotlin search template)" from
+autocompletion removes the template I already had? Can I only search either/or?
+Probably not, I think I'm just choosing one template among the examples.
+Ok, let me read the examples provided on the left.
+
+Looks like the principle is simple: you write the form of the code you want to
+find, using `$variables$` to capture unknown input, and it will return you that
+code. For example,
+
+```
+// $comment$
+@$Annotation$
+```
+
+should return comments followed by annotations...
+
+```kotlin
+    }
+
+    @Test
+    fun testAwaitFailure() = runBlocking {
+```
+
+Eh? I don't see any comment here. Maybe just comments don't work for Kotlin and
+you *do* need it to have a form `// $before$ bug $after$`?
+
+
+```
+// $comment1$ a $comment2$
+@$Annotation$
+```
+
+No, `@Test` without any surrounding comments is still there for some reason.
+
+What does the "Injected code" checkbox do? Time to read the documentation, I'm
+unable to make sense of this any other way, it seems.
+
+<https://www.jetbrains.com/help/idea/structural-search-and-replace.html>
+
+> **Injected code**: if this checkbox is selected, the injected code such as
+> JavaScript that is injected in HTML code or SQL injected in Java will be a
+> part of the search process.
+
+Yeah, not relevant at all. A small gripe is that it doesn't have a tooltip to
+indicate this on mouse hover.
+
+<https://resources.jetbrains.com/help/img/idea/2023.2/Edit_filters.png>
+
+Huh? What does the regex `\b[A-Z].*?\b` even mean? Which dialect is that?
+`?` is supposed to mean "optionally", but `.*` already can have the width of
+zero... And why are `\b` needed? Isn't the field, surrounded by spaces, already
+known to be on a word boundary? No matter, probably a typo. Not to mention that
+I don't need any regexes here, my requirements are simple.
+
+Unfortunately, the documentation does not answer my question at all.
+Let's try some more manually.
+
+```
+/** $comment1$ a $comment2$ */
+@$Annotation$
+```
+
+also returns the uncommented `@Test`.
+
+I tried setting `comment1` to be the "target" of the search:
+
+> **Target**: in the list of options, select what item to search for.
+
+However, even when explicitly searching `comment1` instances, just the
+annotations are returned anyway.
+
+I give up, I don't think this works. And here I was thinking about searching for
+public declarations without a KDoc...
