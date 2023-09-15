@@ -30,19 +30,42 @@ What to do?
 * Have different parsing mechanisms, where packed formats don't work for
   unstructured data, but in return, `12-03-300` is a valid unstructured
   "year-month-day".
-* Define the maximum order of magnitude for each value and don't allow it to
-  exceed that, even when the data is unstructured.
+* (**WINNER**) Define the maximum order of magnitude for each value and don't
+  allow it to exceed that, even when the data is unstructured.
 * Introduce a `maxDigits` field to each directive specifically for the sake of
   packed formats.
 * For most fields, instead of `minDigits`, have `digits`, defining both the
   lower and the upper bounds explicitly. Though for most fields, the only
   valid values would be `2` and `null`.
 
+> **Resolution**. Looking at the actual use cases, we can split them into
+> legitimate ones and API abuse. The legitimate ones all stay in the reasonable
+> numeric width: 29 for an hour-of-day (to mean 5-hour overflow into the next
+> day), 60 for the second, and so on. API abuse *can* mean treating the
+> hour-of-day field as, for example, just some number of hours, and this *may*
+> be error-prone: for example, if someone is under the impression that they
+> can place any amount of hours in `ValueBag`'s hour-of-day field, for small
+> values, it will work, but when the number of hours reaches 100, it will result
+> in a runtime crash. It's not clear how to prevent this API abuse, but we
+> shouldn't sacrifice legitimate use cases. Packed unstructured data is a proper
+> use case: it's clear what 235960 means. Polluting the API with `maxDigits`
+> would not actually help: the same API abuse would just result in a surprising
+> runtime crash from another place.
+
 For any case but the first one, there is a question: what to do when the
 maximum digits bound is exceeded during *formatting*?
 
 * Silently produce a normally unparseable value.
+* (**WINNER**) Don’t allow ValueBag values that exceed the required range.
 * Throw during formatting when the passed values are out of bounds.
+
+> **Resolution**. It's better to catch the API abuse as early as possible,
+> before the unparseable strings enter the databases, so producing incorrect
+> values is not a pleasant solution. Throwing during formatting is also not
+> optimal: after all, `ValueBag` is explicitly for manipulating values for
+> parsing and formatting, and what good would it do to allow putting unusable
+> values there? Additionally, we would like not to throw during formatting at
+> all if possible, see the relevant section.
 
 Functions on a format
 ---------------------
@@ -57,6 +80,8 @@ Functions on a format
   Could make sense, as fields are appended one after another, the string is not
   manipulated as a whole.
 
+> **Resolution**. Both seem useful.
+
 #### Throwing behavior
 
 * On any attempt to format, this will fail if the format makes sense for
@@ -64,17 +89,25 @@ Functions on a format
 * Depending on how we implement `reducedYear`, it may throw for some values.
 * See "Out-of-bounds unstructured data".
 
+> **Resolution**. We would like to avoid throwing anywhere during formatting,
+> because formatting can be used for logging. If your system encounters some
+> invalid values, the last thing you want is for the logging facilities to
+> throw an exception because of that. By eliminating each point in this list
+> separately (with no other sacrifices), we ensured that `format` only throws
+> when it is supposed to format a `ValueBag` and `null` was passed as one of
+> the values, but this is a tricky enough situation to get into.
+
 ### Parsing
 
 #### Which functions to provide
 
-* Bare minimum: `Format<T>.parse(input: CharSequence): T`.
-* If we don't have a separate `ValueBag`, then
+* (**Yes**) Bare minimum: `Format<T>.parse(input: CharSequence): T`.
+* (**No**) If we don't have a separate `ValueBag`, then
   `Format<T>.parseToMap(input: CharSequence): Map<DateTimeField, Any>`.
   (The bare minimum can then be factored through this, but doesn't seem like
   a realistic option in practice).
-* Option: `Format<T>.parseOrNull(input: CharSequence): T?`.
-* Option: also add parameters to grab a piece of string, like
+* (**Yes**) Option: `Format<T>.parseOrNull(input: CharSequence): T?`.
+* (**No**) Option: also add parameters to grab a piece of string, like
   `Format<T>.parse(input: CharSequence, start: Int, end: Int)`.
 
   - If `start` is specified, it doesn't make sense not to specify `end` as well,
@@ -86,16 +119,31 @@ Functions on a format
     have such functions for `Int`, etc.
   - When needed, can be less efficiently emulated by stripping out a substring.
 
+> **Resolution**. `parse` and `parseOrNull` are both useful. As we have a
+> separate `ValueBag`, `parseToMap` is not needed. `parse` that accepts the
+> start and the end positions of a substring seems *very* situationally useful,
+> only as a performance optimization over `parse(string.substring())`, and who
+> needs this kind of performance specifically when parsing pieces of strings as
+> dates?
+
 #### Throwing behavior
 
 * When a string that doesn't fit the format is passed, an exception is thrown.
+  - **Yes**, throws `DateTimeFormatException: IllegalArgumentException`
 * When parsing structured data (`LocalDate`, `LocalTime`, etc), boundaries are
   checked (otherwise, we couldn't construct `T`).
+  - **Yes**, throws `DateTimeFormatException: IllegalArgumentException`
+    with the message from the original exception.
 * When parsing unstructured data (`Map<Field, Any>` or `ValueBag`), boundaries
   are not checked, *but* the order of magnitude is checked.
-  - See "Out-of-bounds unstructured data".
+  - See "Out-of-bounds unstructured data". **Resolution** from that section
+    means that no crash is possible at that point.
 
 ### Search
+
+> **Resolution**. We didn't even discuss this section, deciding that it's too
+> early to introduce this functionality. Maybe when we collect more use cases
+> to discuss this more on-point.
 
 See <https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.text/-regex/find.html>,
 <https://kotlinlang.org/api/latest/jvm/stdlib/kotlin.text/-regex/find-all.html>.
@@ -300,7 +348,17 @@ year()
 With arguments to the specific directives:
 
 ```kotlin
-fun day(minLength = 1, padChar = '0')
+monthNamePosix()
+char(' ')
+day(doPad = true, padChar = ' ') // "padChar: Char?" ?
+char(' ')
+year(padStyle = Padding.NONE)
+
+enum class Padding {
+  NONE,
+  ZERO, // default
+  SPACE,
+}
 ```
 
 * In theory, there could be more elaborate uses for space padding, like
