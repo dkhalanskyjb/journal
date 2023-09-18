@@ -301,7 +301,104 @@ Should we provide these in some form?
   Note that so far, we haven't established any need for these styles anywhere
   else.
 * The general mechanism `appendMonthName()` + constant like
-  "short POSIX month names" somewhere.
+  "short POSIX month names" somewhere. Usage example:
+  `monthName(listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))`
+* (Suggested during the design meeting)
+  `appendMonthName`, but with a separate class, `MonthNames`. The same for
+  `appendDayOfWeek`.
+
+#### Classes for names
+
+
+Example:
+
+```kotlin
+class kotlinx.datetime.format.MonthNames(val names: List<String>) {
+    companion object {
+        val ENGLISH_NAMES: MonthNames
+        fun englishShortNames(isUpperCase: Boolean)
+    }
+}
+```
+
+Usage examples of these classes vs not having them:
+
+```kotlin
+val format = LocalDateTime.Format.build {
+  year(4)
+  string(", ")
+  monthName(MonthNames.ENGLISH)
+  char('-')
+  dayOfMonth(2)
+  string(", ")
+  hourOfAmPm(2)
+  char(':')
+  minute(2)
+  optional {
+    char(':')
+    second(2)
+  }
+  char(' ')
+  amPmMarker(AmPmMarkerNames("am", "pm"))
+}
+
+val format = LocalDateTime.Format.build {
+  year(4)
+  string(", ")
+  monthPosixName()
+  char('-')
+  dayOfMonth(2)
+  string(", ")
+  hourOfAmPm(2)
+  char(':')
+  minute(2)
+  optional {
+     char(':')
+    second(2)
+  }
+  char(' ')
+  amPmMarker("am", "pm")
+}
+```
+
+* Should we have a single class like `Names` for all strings and have the names
+  themselves know what field type they are?
+  **Resolution: No**: see the next point. The same reasoning applies. Also,
+  having `MONTH_NAMES_ENGLISH` and `DAY_OF_WEEK_NAMES_ENGLISH` in the same
+  namespace is odd.
+* Should we have a single method with overloads, or are different string fields
+  disparate enough to warrant their own functions?
+  Like `nameOf(MonthNames.ENGLISH)` and `nameOf(AmPmMakerNames.ENGLISH)` vs
+  `monthName(MonthNames.ENGLISH)` and `amPmMarker(AmPmMarkerNames.ENGLISH)`.
+  **Resolution: Separate methods**: it is true that
+  `monthName(MonthNames.ENGLISH)` has repetition in a single line of code
+  (which is on Kotlin for not having an equivalent of Swift's
+  `monthName(.ENGLISH)`), but this is still preferable: the intention is to
+  format **month names** in the form of English strings, not to form some names
+  that happen to be month names.
+* Should we introduce a class for AM/PM markers as well? **Resolution: No**:
+  that's too verbose for a thing that doesn't essentially grant any type safety
+  nor introduces a meaningful namespace for constants: even we don't know the
+  proper names of `a.m.` vs `A.M.` vs `AM`, and the users of our library are yet
+  more unlikely to know what form `AmPmMarkerNames.ENGLISH_FULL` refers to
+  without looking at the documentation.
+  `amPmMarkerUpperCaseWithoutDots()`, `amPmMarkerLowerCaseWithoutDots()` just
+  doesn't have a ring to it.
+
+Which specific functions should we introduce to these classes?
+
+* English names, full and short. As separate constants or as a function like
+  `monthName(MonthNames.english(full = true))`, or with a separate constant like
+  `FormatStyle.FULL`? **Resolution: just constants, no functions**. Other
+  ecosystems do have `FormatStyle.FULL` and its equivalents, but it's of
+  questionable usefulness. It's typically for localized formatting and is used
+  to choose among predefined skeletons of formats to decide which fields will
+  be present.
+* Should we allow ignoring the case? **Resolution: No**: allowing to parse
+  `jAn` doesn't seem to be actually useful, and when the intention is to parse
+  one of several formats, there's a specific directive for that already:
+  `oneOf({ monthName(lowerCase) }, { monthName(upperCase) })`. When compiled, it
+  shouldn't be any less efficient.
 
 ### Last two digits of the year
 
@@ -322,11 +419,24 @@ incorrectly. Using `1960` as the base, `2100` -> `00` -> `2000`.
 Possible mitigations:
 
 * Just replicate what Java does. No one seems to be complaining.
+  **Resolution**: if there's no better option. It's not pleasant to be producing
+  incorrect values, so we'd like to avoid that.
 * Throw on formatting if the value if outside `[base; base + 100)`.
+  **Resolution**: we don't want to allow formatting to throw. Invalid values
+  should still be formatted, logging shouldn't be allowed to fail.
 * Deliberately output something not according to the format when out of bounds.
   For example, `2100` -> `100`, `1959` -> `-159`. This way, parsing will break,
   the users will learn about the problem and will still have a way to extract
   the actual value.
+  **Resolution**: ok, but maybe something less cryptic.
+* (**WINNER**, Suggested during the design meeting):
+  generalize the format so that it's parseable, error-proof, and sensible, but
+  when in `[base; base + 100)`, it's working on two-year values.
+  One such format is:
+  - The last two digits if the year is in `[base; base + 100)`,
+  - The full year with a leading sign if the year is outside the range: for
+    base = 1960, this would mean `2100 -> +2100`, `50 -> +50`, `1960 -> 60`,
+    `2011 -> 11`, `-10 -> -10`.
 
 ### Space padding
 
