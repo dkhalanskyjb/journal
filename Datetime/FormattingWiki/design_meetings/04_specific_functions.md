@@ -471,6 +471,17 @@ enum class Padding {
 }
 ```
 
+Example of why space padding is used: fixed-width human-readable output.
+
+```
+$ ls -l
+drwxr-xr-x  4 dmitry.khalanskiy dmitry.khalanskiy      4096 Mar  7  2023 proofs/
+-rw-rw-r--  1 dmitry.khalanskiy dmitry.khalanskiy     24678 Jun 22 14:15 rulestrings
+```
+
+Another example: `asctime(3)` formats time as `EEE MMM ppd HH:mm:ss uuuu`,
+ensuring that a fixed-size array can be used for all dates.
+
 * In theory, there could be more elaborate uses for space padding, like
   "pad the whole date to 20 characters," but in practice, padding days and
   month to two digits seems to be the *only* use case. See
@@ -482,6 +493,14 @@ enum class Padding {
   cumbersome, whereas having different signatures for fields that in practice
   behave the same may be strange.
 
+> **Resolution**. Since there's no known use cases for space-padding several
+> directives at a time, or for padding with both zeros and spaces, we should
+> instead enhance the directives themselves, making this functionality more
+> discoverable.
+>
+> Having the `Padding` parameter for every unsigned field is not strange:
+> it's also the place where zero-padding could be turned off.
+
 ### The UTC offsets
 
 #### Convenient access to common formats
@@ -490,7 +509,7 @@ It's easy to define `LocalTime.Format.ISO_TIME`, but for offsets, the usage
 varies wildly and there's no widely used "`ISO_OFFSET`".
 
 The four most popular offsets can be described like this in the current
-implementation:
+implementation, in the decreasing order of popularity:
 
 ```kotlin
 val offsetFormat1 = UtcOffset.Format.build {
@@ -552,18 +571,52 @@ internal fun isoOffset(
 }
 ```
 
+> **Resolution**. The general version looks **nasty**, and it doesn't seem like
+> there can be any better version that's still general. So, it's probably better
+> not to even try to go there, but instead, stick to the builder API and provide
+> the most commonly used formats constants. According to the statistics, these
+> four formats cover the vast majority of ways people actually format and parse
+> UTC offsets.
+>
+> The fourth format doesn't seem to have a common name, but it's okay because
+> it's fairly simple to define. The second and the third formats are ISO formats
+> if we also include an optional seconds-of-minute component. It's likely that
+> people don't discard the seconds-of-minute components intentionally, but
+> instead, their data simply never has the seconds be non-zero, so it's okay to
+> just generalize these formats to include the seconds as well and provide them
+> as ISO constants.
+>
+> The first format is trickier, as it seemingly doesn't have a good name if
+> we include the seconds. What kind of a format is it that formats everything
+> as four-digit numbers with the leading sign, unless the seconds are set, in
+> which case it's six digits? It's not "compact": `+04:00` will be formatted as
+> `+0400`, even though even by the ISO standard, it can be `+4`. It's also not
+> ISO at all, as `00:00` should be formatted as `Z`, but this format doesn't
+> support `Z`. We should also keep autocompletion in mind: no one is going to
+> learn the meaning of our constants by heart, and most people won't even know
+> what "`ISO_BASIC`" means. Looks like the proper decision here, after all, is
+> to leave out the seconds and just call this "`UtcOffset.Formats.FOUR_DIGIT`".
+> The name is very telling, and people don't seem to actually need the seconds,
+> so we're not losing much by not including seconds.
+
 #### Sign
 
 In practice, the sign always precedes the hour, yet logically it's distinct:
 it's the sign not of the hour but of the whole offset.
-Should we introduce `offsetHours` and `offsetSign` separately, or should
-`offsetHours` just include the sign?
+Should we introduce `offsetHours` and `offsetSign` separately, or (**WINNER**)
+should `offsetHours` just include the sign?
 
 * Not specifying the sign separately is less boilerplate.
 * If one doesn't know the sign is included in `offsetHours`, the lack of it
   can seem like a mistake and lead the person to search how to add the sign.
 * If one thinks the sign is included in `offsetHours` but it isn't, it will be
   obvious immediately, so this isn't error-prone in any case.
+
+> **Resolution**. There are no known formats that don't have the sign precede
+> the hour in the UTC offset. Sure, in theory, there could be other meaningful
+> representations, like "`<sign><total seconds>s`", but their theorethical
+> existence is not worth making everyone who actually uses our API deal with the
+> boilerplate.
 
 ### The pesky sign of the year
 
@@ -592,9 +645,21 @@ public fun appendYear(
 )
 ```
 
+> **Resolution**. Most dates in practice *do* deal with years between `1000`
+> and `9999`, so the padding of the year and what happens when it overflows is
+> relevant only to a tiny minority of users. Since our `parse` and `toString`
+> already work with the leading sign on the overflow of padding, having the
+> option to include this sign is already required, but does anyone actually
+> intentionally want not to have that sign? It doesn't seem like it if we search
+> for the actual use cases: people don't even complain they can't work with
+> years outside ±9999 in other ecosystems, so no one is likely to even notice
+> what we do with the signs here. Hence, we won't include this option until
+> there's actual demand, and by default, the sign will be included on padding
+> overflow.
+
 ### Call chaining?
 
-This formatting looks stylistically incorrect:
+This formatting looks stylistically incorrect (**yes**, it does):
 
 ```kotlin
 LocalTime.Format.build { hour(2); char(':'); minute(2); char(':'); second(2);
@@ -633,7 +698,7 @@ LocalTime.Format.build {
 }
 ```
 
-This builder form looks stylistically incorrect:
+This builder form looks stylistically incorrect (**yes**):
 
 ```kotlin
 LocalTime.Format.build { hour(2).char(':').minute(2).char(':').second(2)
@@ -644,7 +709,7 @@ LocalTime.Format.build { hour(2).char(':').minute(2).char(':').second(2)
 ```
 
 This builder form is nasty and unreadable when there are is some lexical scoping
-implied:
+implied (**yes**):
 
 ```kotlin
 LocalTime.Format.Builder()
@@ -659,13 +724,29 @@ LocalTime.Format.Builder()
   .endAlternativeList()
 ```
 
+> **Resolution**. Fluent API separated by dots is a no-go, as yes, in both forms
+> it looks confusing and is not even idiomatic, given Kotlin's `apply()`-like
+> approach to builders that's usually taken.
+>
+> Wasted space is not that much of a concern, as people *can*
+> write everything in one line. The first example looks too busy only because
+> of the nesting, but the following seems fine and is what we should promote in
+> examples in the documentation:
+
+```kotlin
+LocalTime.Format.build {
+  hour(2); char(':'); minute(2); char(':'); second(2)
+  optional { char('.'); secondFraction() }
+}
+```
+
 
 Miscallaneous
 -------------
 
 ### Default number of digits
 
-Should we zero-pad (/request zero-padding) by default?
+Should we zero-pad (/request zero-padding) by default? **Yes**.
 
 If we do request zero-padding to the likely width by default:
 
@@ -703,7 +784,13 @@ LocalDate(196, 1, 1).format {
 } // 1 Jan 0196
 ```
 
-### Overwriting already parsed components during parsing
+> **Resolution**. It's much more likely that people do want padding than that
+> they don't, and when they test their code on dates like `2023-12-24`, they
+> may not notice the fact that their numbers doesn't have padding. So, not
+> having padding seems more error-prone. So, padding to the reasonable width
+> should be the default.
+
+### Overwriting already-parsed components during parsing
 
 ```kotlin
 LocalTime.Format.build {
@@ -721,15 +808,28 @@ LocalTime.Format.build {
 ```
 
 Given a string like `15:36 (03:36 AM)` or `15:36 (03:37 PM)`,
-what should the parser it do?
+what should the parser do?
+
+Also, what should happen on `May 16 2023, Tue`?
 
 * (Everyone except Java): take one of the two parsed values, either the first
   or the last one.
-* (Java): throw an exception.
+* (Java): **WINNER**: throw an exception.
   - A parsing exception if one field, repeated several times, has conflicting
     values.
   - A resolution exception if several fields (like 24-hours and AM/PM markers)
     are in conflict.
+
+> **Resolution**. Java's approach seems sensible: if a field is _repeated_,
+> clearly, there's no way for us to only return a single value and still produce
+> sensible results if the value is in coflict with itself. If different fields
+> are in conflict, it's up to the resolution mechanism to ensure the parsed
+> value is represented faithfully as an object, and there's no way to represent
+> `May 16 2023` that's also a `Tue`, so this is an error.
+>
+> Users will be able to sidestep the resolution errors by employing `ValueBag`,
+> so this is only the question of default behaviors. When given strange data,
+> use the strange means.
 
 ### Parsing with default values
 
@@ -762,9 +862,60 @@ What to do?
 * Default-initialize nothing.
 * Default-initialize something. What?
   - On a case-by-case basis.
-  - Zero-initialize exactly the things that have default values in constructors
+  - (**WINNER**)
+    Zero-initialize exactly the things that have default values in constructors
     for our classes: minutes, seconds, nanoseconds, all the components of a UTC
     offset, all the components of a `DateTimePeriod`.
+
+> **Resolution**. `DateTimeFormat<LocalTime>` should be consistent with ways to
+> construct a `LocalTime`. A `LocalTime` can be constructed with just an hour
+> and a minute, omitting seconds and nanoseconds. Hence, this is what should
+> happen in its format as well.
+>
+> When parsing with `DateTimeFormat<ValueBag>`, it's possible to have optional
+> minutes: just set them to zero explicitly after the parsing but before
+> obtaining a `LocalTime`.
+>
+> When formatting with `DateTimeFormat<ValueBag>`, it's *not* possible to
+> omit minutes if they are zero, but looking through various code, it doesn't
+> look like people actually do that.
+
+### Appending a format
+
+Option 1 (**WINNER**):
+
+```kotlin
+date(LocalDate.Format.ISO)
+char(' ')
+time(LocalTime.Format.ISO)
+// also dateTime, utcOffset, valueBag
+```
+
+Option 2:
+
+```kotlin
+format(LocalDate.Format.ISO)
+char(' ')
+format(LocalTime.Format.ISO)
+```
+
+Option 2 has severe consequences: how to allow `format(Format<LocalDate>)` in
+`DateFormatBuilder: FormatBuilder`
+but not in `TimeFormatBuilder: FormatBuilder`, and vice versa?
+
+* It’s okay to allow passing any `Format<*>` to format, sidestepping type safety.
+* FormatBuilder must know what it’s building a format for, like
+  `fun FormatBuilder<T>.format(format: Format<T>)`.
+    * But then, `DateTimeFormatBuilder: FormatBuilder<LocalTime>, FormatBuilder<LocalDate>, FormatBuilder<LocalDateTime>`,
+      which is impossible. Can be fixed by introducing interfaces to `LocalDate`
+      etc and relying on variance.
+
+This decision is also relevant for the following section: option 2 opens up new
+API forms there as well.
+
+> **Resolution**. `date` and `time` are perfectly fine names, no need to
+> mess up the entire class hierarchy of the library just for this (and the
+> new API forms in the following section).
 
 ### `oneOf` sections
 
@@ -819,17 +970,183 @@ well: for string `Z`, the offset will be parsed as zero.
 For *formatting*, the first use case doesn't make sense, as we know exactly how
 we want to format everything.
 
-* Provide `oneOf` and `optional` with different semantics: in `oneOf`, the first
+* (**WINNER**)
+  Provide `oneOf` and `optional` with different semantics: in `oneOf`, the first
   entry is always formatted, and for `optional`, the placeholder string will
   get formatted if the fields are all in their default values.
   - For parsing, there will be two similar ways of doing the same thing, one
-    of which works for formatting and one which doesn't.
+    of which works for formatting and one which doesn't. **Resolution**. It's
+    okay that there are two ways of doing the same thing: they are distinct
+    enough that they reflect the intention behind the code well.
 * Tweak the semantics of `oneOf` to work like `optional`, and throw on attempts
   to format using a `oneOf` bunch that just doesn't make sense for formatting.
+  **Resolution**. In practice, most formats *are* used only for parsing or only
+  for formatting, not for both at the same time. The formats for parsing are
+  commonly structured in a way that would lead to broken formatting, like
+  `[dd][ d]`, which is clearly intended to parse either a two-digit day or
+  a one-digit day with a sepace before it, but when formatting, it would result
+  in something like `15 15` or `09 9`. So, it principle, this wouldn't be
+  *worse* than what the existing systems have, and no one would likely notice
+  this. However, this option means broken semantics: whether a given invocation
+  of `oneOf` has a bug is not known until we look at whether it will be used
+  for formatting. It is quite strange: we're defining a _format_, not a
+  "parser plus maybe formatter". What `oneOf` even means changes on the intended
+  usage of the format. This is not pretty. Add to this that some code could be
+  parameterized with a `DateTimeFormat` and would have no way of knowing whether
+  a given format is safe for formatting, and you get very unpleasant lack of
+  separation of responsibilities.
 * Tweak the semantics of `oneOf` to work like `optional`, and pigeonhole it to
   always output *something* in a predictable manner.
+  **Resolution**. After some attempts, we couldn't find an option that would be
+  useful, total, and associative. Associativity seems like a very natural thing
+  to ask for in an operator like this: `oneOf(a, oneOf(b, c)) == oneOf(oneOf(a, b), c)`.
+  Example of the problem: what should be the meaning of
+  `oneOf({ second() }, { hour(); minute() }, { second(); day() })`?
 * Should we even provide `optional` if it's a thin wrapper, given how thin it
   is, or should we direct people to the more general API immediately?
+  **Resolution**. It should be its own separate thing.
+
+Having decided that `oneOf` and `optional` have different semantics, the
+question is, what would `oneOf` look like to make sense in both cases.
+
+First question: should the first or the last entry be the default one to be
+formatted? A couple of details of Kotlin's behavior that will be needed to
+decide that:
+
+```kotlin
+fun check1() {
+    fun oneOf(vararg blocks: () -> Unit, default: () -> Unit) {
+
+    }
+    // OK
+    oneOf({
+
+    }) {
+
+    }
+    // OK
+    oneOf({
+
+    }, default = {
+
+    })
+    // FAIL: "no value passed for parameter 'default'"
+    /*
+    oneOf(
+        {
+
+        },
+        {
+
+        }
+    )
+   */
+}
+
+fun check2() {
+    fun oneOf(default: () -> Unit, vararg blocks: () -> Unit) {
+
+    }
+    // OK
+    oneOf({
+
+    }, {
+
+    })
+    // FAIL: Passing value as a vararg is only allowed inside a parenthesized argument list
+    /*
+    oneOf({
+        
+    }) {
+        
+    }
+   */
+}
+```
+
+Having the option that will be parsed as the last one has the advantage that the
+default case is syntactically distinct, but a disadvantage that the order in
+which various subformats will be tried during parsing is strange: first, the
+"default" one, the last one, will be tried, and the alternative versions will
+be tried only then. So, the order is $n$, 1, 2, ..., $n - 1$ if we go from the
+top to the bottom.
+
+**Resolution**. The order of resolution almost never matters in real life, as
+the subformats are going to be disjoint. When a subformat does matter, it's
+expected that the syntactically distinct block will be used first.
+
+Now, some forms we considered:
+
+Introducing a new type that would allow chaining options. This would lead to
+syntactic distinction and read fluently, without noisy syntax. **Resolution**.
+For such an off-to-the-side part of the API, introducing a separate interface
+would be a bit too much. This functionality is just not worth more than one
+documentation entry.
+
+```kotlin
+parseAlternatives {
+}.addOption {
+}.addOption {
+}
+```
+
+```kotlin
+{
+    year()
+    month()
+    dayOfMonth()
+    alternativeParsing(LocalDate.Format { }) {
+    }
+}
+```
+
+Another option would be to only accept prebuilt formats as arguments. This way,
+there are extra garbage words, but at least everything's readable at a glance.
+The downside is, this would lead us to the problem described in the previous
+section, where `LocalDate` would need to implement an interface for `oneOf`
+to be type-safe. **Resolution**. Not worth it.
+
+```kotlin
+oneOf(
+  LocalDate.Format {
+  }, // <- this gets formatted?
+  LocalDate.Format {
+  },
+  LocalDate.Format {
+  },
+)
+
+// also, would we need to change `optional` for consistency
+optional("", LocalDate.Format {
+   ...
+})
+// or keep it like it is?
+optional('Z') {
+  offsetHours()
+  char(':')
+  offsetMinutes()
+}
+
+```
+
+(**WINNER**) A bunch of braces and parens, but with careful discipline, could be
+written in a clear and readable manner.
+
+```kotlin
+alternativeParsing(
+  {
+      offsetHours(2)
+      char(':')
+      offsetMinutes(2)
+  },
+  {
+      offsetHours(2)
+      offsetMinutes(2)
+  },
+) {
+   char("Z")
+}
+```
 
 ### Serialization of the Format classes
 
@@ -870,6 +1187,32 @@ library:
       "value": "-"
     },
 ```
+
+This is too verbose though, and not really suitable for configs.
+
+**Resolution**.
+
+Before deciding on the format, we should gather requirements and non-requirements.
+
+Requirements:
+
+* One-liners for config files
+* Readable in simple cases (without docs)
+* Consistency: should allow easy tweaking
+* All formats must be serializable (and best-effort deserializable)
+* Primary use case: for machine communication
+
+Desirable:
+
+* Concise. Future-proofing for printf-like directives on the language level,
+  this format probably should be the same one as in `printf` directives.
+
+Non-requirements:
+
+* Discoverability
+
+Looks like we won't be able to quickly think of such a format, so we'll return
+to this after the initial release.
 
 ### The API of the ValueBag
 
