@@ -614,7 +614,7 @@ should `offsetHours` just include the sign?
 
 > **Resolution**. There are no known formats that don't have the sign precede
 > the hour in the UTC offset. Sure, in theory, there could be other meaningful
-> representations, like "`<sign><total seconds>s`", but their theorethical
+> representations, like "`<sign><total seconds>s`", but their theoretical
 > existence is not worth making everyone who actually uses our API deal with the
 > boilerplate.
 
@@ -1214,6 +1214,99 @@ Non-requirements:
 Looks like we won't be able to quickly think of such a format, so we'll return
 to this after the initial release.
 
+### Timezone identifier
+
+#### Java
+
+Examples of usage in the wild (the directive is VV), besides <https://grep.app/search?q=ZonedDateTime.parse>:
+
+```
+'UTC--'yyyy-MM-dd'T'HH-mm-ss.nVV'--'
+VV
+uuuu-MM-dd HH:mm:ss[.SSS] VV
+'TIMESTAMP '''yyyy-MM-dd HH:mm:ss.SSS VV''
+'TIMESTAMP '''uuuu-MM-dd HH:mm:ss.SSSSSS VV''
+'TIMESTAMP WITH TIME ZONE '''yyyy-MM-dd HH:mm:ss.SSS VV''
+ VV
+HH:mm:ss.SSS VV
+yyyy-MM-dd'T'HH:mm:ss.SSSVV
+yyyy-MM-dd'T'HH:mm:ss.SSS'['VV']'
+dd-MM-yyyy HH:mm:ss VV
+y M d H m s VV
+yyyyMMddHHmmssVV
+```
+
+Often the time zone is set explicitly to the UTC time zone, ensuring just the text “UTC”.
+Parsing:
+
+* Query the list of timezone IDs,
+* Build a trie out of them,
+* Try to parse either a value from the trie or things like GMT+02:30.
+
+It’s possible to parse and format timezone abbreviations as well, but one must
+jump through hoops to do it: <https://stackoverflow.com/a/49612462>
+Barely anyone does:
+<https://grep.app/search?q=appendZoneText&words=true&filter[lang][0]=Java>
+
+#### C, Python, Go, etc
+
+Only timezone abbreviations are supported, not full timezone names. The parsing algorithm:
+
+* Try to parse "UTC", "GMT+02:30", "+12", or such special cases (varies by the language).
+* Query the current timezone for its list of timezone abbreviations.
+* Try to parse them. If successful, treat it as the time zone.
+
+#### Noda time
+
+Requires passing a timezone database to the format to know which time zones to
+parse, which can be arbitrarily overridden.
+
+#### What to do?
+
+```kotlin
+appendZoneId() // `Region/Zone` `Etc/Utc`
+// appendZoneId(timeZoneDatabase: TimeZoneDatabase)
+// appendZoneId(zoneIds: Set<String>) // may not even need at the end
+```
+
+* We don’t have a notion of a timezone database yet.
+  The timezone database is effectively a singleton.
+    * `TimeZone.getAvailableZoneIds(): Set<String>`
+* When we add timezone databases, we’ll likely have to deprecate all the places
+  where timezones are created in favor of using a timezone database.
+  This place would not be an exception.
+* The set of time zones that an application understands is inherently limited.
+  It’s not `[a-zA-Z0-9_/]+` but a specific set of strings, whose interpretation
+  may change from program to program and even from system to system.
+
+**Resolution**. This is a weak place in the design, as we don't have a
+consistent model of time zones yet. One question: when we introduce time zone
+databases, when a format is serialized, will `appendZoneId(tzdb)` include the
+database? If so, how to do that in case of custom databases?
+Will non-predefined databases even exist when we refine the semantics of the
+timezones? So far, there are no clear answers to these questions, and we'll have
+to keep this in mind when designing timezone databases.
+
+Maybe one way will be to deal with this by parsing any string that looks like a
+IANA tzdb identifier. After all, the only thing that contains a `timeZone`
+field is the `ValueBag`, and it contains the time zone as a string, not as a
+`TimeZone` object. In practice, as we see, timezone identifiers are clearly
+separated from the rest of the strings.
+
+An issue with parsing a string that "looks like a IANA tzdb identifier" is that
+there does not seem to be a guarantee regarding what can theoretically go there.
+Java's docs specify that its region-based time zones must match the regex
+`[A-Za-z][A-Za-z0-9~/._+-]+`
+(<https://docs.oracle.com/javase/8/docs/api/java/time/ZoneId.html#of-java.lang.String->),
+but this requirement doesn't seem to be coming from IANA tzdb's guarantees.
+There only seem to be "guidelines" on how to name new identifiers:
+<https://www.ietf.org/timezones/tzdb-2020a/theory.html#naming>.
+
+For now, we stick to `appendZoneId()` that just queries the list of timezones in
+the system timezone database, as it's in line with how the timezone API is
+currently designed, and when we change the timezone API design, we'll also
+revisit this.
+
 ### The API of the ValueBag
 
 This is what the value bag looks like for now:
@@ -1298,30 +1391,39 @@ The requirements we have for this data structure:
 * Combining several parts together.
 * Checking that the values have some *sensible* range on their assignment.
 
-What is the sensible range for each field?
+What is the sensible range for each field? We've decided already that `ValueBag`
+should itself check values for basic validity.
 
-* Years.
-* Month numbers.
+* Years. **The whole Int**: probably no such thing as an invalid year.
+* Month numbers. **[0..99]**: a simple and clear rule that makes no assumptions
+  about the use cases beyond months being a one- or two-digit number.
 * Days of month. Sometimes overflows the boundaries by dozens of days.
-* Days of week.
-* Hours.
-* Minutes.
+  **[0..99]**
+* Days of week. **A enum, can't be anything other than the predefined values**.
+* Hours. **[0..99]**
+* Minutes. **[0..99]**
 * Seconds. Sometimes have the value 60. Usually people deal with it by replacing
-  it with 59 and parsing anew.
+  it with 59 and parsing anew. **[0..99]**
 * Fraction of a second.
   Anything but `[0; 1)` seems to be non-representable nonsense, given that we
   don't provide an explicit "nanoseconds of a second" directive.
+  **Nanoseconds are only allowed to be in `0..999_999_999`**
 * The offset hour.
   In practice, offsets are `[-12; 14]`; we support `[-18; 18]`;
   POSIX mandates support for `(-25; 26)` for the timezone-handling facilities.
+  **[-99..99]**
 * The timezone ID. The values to support depend heavily on the timezone database
   and the specific format that may define the meaning for ambiguous timezone
   abbreviations (like RFC 822 does).
+  **No limitations**. If IANA tzdb introduces a new character to the names,
+  we don't want not to be able to represent it in _unstructured data_, the last
+  resort when everything else fails.
 
 How to handle duplicate data? For example, `month` and `monthNumber`.
 
 * Only provide access to one field of the two.
-* Define one field as a property that accesses the other field.
+* (**WINNER**) Define one field as a property that accesses the other field.
+  **Resolution**. Why not make this a bit more convenient?
 
 How to handle duplicate *split* data? `hour` vs `hourOfAmPm` + `hourIsPm`,
 or `year` + `monthNumber` + `dayOfMonth` vs `weekBasedYear` + `isoWeekNumber` +
@@ -1332,26 +1434,93 @@ or `year` + `monthNumber` + `dayOfMonth` vs `weekBasedYear` + `isoWeekNumber` +
   that ensures the data is propagated to all the known fields. For example,
   setting `year` + `monthNumber` + `dayOfMonth` should automatically set
   `dayOfWeek`.
-* Option 2 ("what does it mean, the field is unset?").
+  **Resolution**. The logic gets either very opaque or convoluted if we go this
+  way. Setting `hour` overrides `hourOfAmPm` and `hourIsPm`;
+  setting `hourOfAmPm` while `hourIsPm` is unset (or vice versa) should not
+  affect `hour`; also, since `hour` is a number in `[0..99]` for unstructured
+  data handling purposes, `hourIsPm` is not always well-defined for a given
+  `hour`: is `hour = 48` AM or PM? Probably setting `hour > 23` should set
+  `hourIsPm` and `hourOfAmPm` to `null`. Otherwise, we don't even know how to
+  interpret the hour in the presence of timezone transitions.
+  So, this is a mess. See the design constraints we've written down below.
+* (**WINNER**) Option 2 ("what does it mean, the field is unset?").
   All these fields should just be independent. If `hourOfAmPm` and
   `hourIsPm` are set, it doesn't mean `hour` should also be set, and vice versa.
   `ValueBag().apply { hour = 13 }.format { hourOfAmPm() }` should throw.
+  **Resolution**. Actually, this should be okay. Who would be setting fields
+  manually? Most people would populate the value bag from a `LocalTime` if it
+  came to that. Also, seeing "the field is not set" error when you set a
+  similarly named but actually different field is not that surprising.
 * Option 3 ("I wonder which one it is this time").
   There is no consistent rule, we should decide this on a case by case
   basis. For example, `hourOfAmPm` + `hourIsPm` could get its values from
   `hour` / affect its value, but `dayOfWeek` shouldn't be touched.
+
+Design constraints:
+
+* (Given) `hour` is in `0..99` for tricky needs.
+* `hour = 13 + AM` is invalid.
+* `hour = 96` may be legal with both AM and PM in some domains.
+* `hour = 9` is unambiguously 9 AM.
+* `hourOfAmPm = 9` can be both AM and PM.
+* `hourOfAmPm = 14` is invalid.
+* It should be possible to format AM/PM separately from the hour.
 
 Construction: how to set the fields of a newly-created `ValueBag`?
 
 * Manual setters (almost mandatory anyway if we are to represent partial data
   in some manner, though they can be replace with "set the default value"
   directive to the parser if we really have to).
-* Functions to populate `ValueBag` from a given object.
-* Constructors that accept these objects one by one.
-* Adding together several `ValueBag` values.
+  **Yes**, we need this.
+* Functions to populate `ValueBag` from a given object. **Resolution**. We need
+  them, but they are dangerous. For example, imagine that we initially release
+  `ValueBag` without `hourOfAmPm`. This code works well:
+  `ValueBag().apply { populateFrom(LocalTime(23, 59)); hour = 9 }.toLocalTime()`.
+  Then we publish a new release that introduces `hourOfAmPm`. `populateFrom`
+  starts filling the `hourOfAmPm` field as well, and `toLocalTime` starts to
+  check for consistency between `hourOfAmPm` and `hour`. At this point, this
+  code breaks: `hourOfAmPm` is still `11`, but `hour` is `9`, the values are
+  incompatible. To guarantee that no code breaks, we either have to have `hour`
+  affect `hourOfAmPm`, which is suboptimal, as discussed above, or make
+  `toLocalTime` not check for consistency, or not provide `populateFrom`. This
+  would be a pity: we do *not* want `ValueBag` to support these use cases.
+  It's specifically for formatting and parsing data, with the ability to
+  slightly tweak data after parsing to fit the boundaries. These considerations
+  led us to a surprising conclusion:
+  **we should not allow constructing `ValueBag` manually**.
+* Constructors that accept these objects one by one. **Resolution**. As
+  discussed above, no constructors.
+* Adding together several `ValueBag` values. **Resolution**. As discussed above,
+  there should be no access to `ValueBag` values outside the parsing and
+  formatting contexts, so no reason to introduce this.
 * Constructors that accept everything at once. Note: difficult to extend, and
   there are several constructors needed anyway to represent `LocalDateTime` vs
-  `LocalDate` + `LocalTime`.
+  `LocalDate` + `LocalTime`. **Resolution**. As
+  discussed above, no constructors.
 
-Access: how to obtain the values from a newly-created `ValueBag`?
+The only ways to access a `ValueBag` should be by parsing a value and while
+preparing a value to be formatted:
 
+```kotlin
+ValueBag.Formats.RFC_1123.format { // has an initially empty ValueBag as a receiver
+  populateFrom(date)
+  populateFrom(time)
+  populateFrom(offset)
+}
+```
+
+It *is* still possible to construct invalid code: one can still do something
+atrocious like
+
+```kotlin
+val result: LocalTime
+ValueBag.Format("").format {
+  populateFrom(time)
+  result = toLocalTime()
+}
+```
+
+However, no one can complain if this code ever breaks.
+
+Access: how to obtain the values from a newly-created `ValueBag`? **Resolution**.
+The `toLocalDate`-like functions seem nice.
