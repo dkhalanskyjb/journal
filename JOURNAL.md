@@ -5768,3 +5768,68 @@ I'll just drop it for good. In any case, this multi-year cycle of constant
 irritation will stop. Maybe I'll start a separate journal in this repository
 where I'll record how much the IDE assists me. I'll also record the cases where
 it actively hindered me and a plain text editor would do a better job.
+
+2023-09-21
+----------
+
+Finally took to reading
+<https://schedule.cppnow.org/wp-content/uploads/2023/05/speeding-date.pdf>,
+which I saw posted quite a while ago. It describes a way to speed up some
+calendar-based computations. An implementation of these ideas is
+<https://github.com/dotnet/runtime/pull/72712/files>. Maybe some of this can
+be introduced to `kotlinx-datetime`.
+
+The technique of optimizing divisions I see here reminds me of the book I went
+through once: <https://www.xorpd.net/pages/xchg_rax/snip_00.html>. I'm surprised
+compilers don't optimize things like `n / 5` to `3435973837 * b / 2^34` on their
+own. Or maybe they do?.. Looking at <https://godbolt.org/>, I don't think they
+do.
+
+Without seeing the actual talk, I don't understand what role do the Euclidean
+affine functions and their properties play here... Also, what are they even?
+I can't find mentions of them... outside their paper?..
+
+Hey, wait a minute! There's a paper! <https://arxiv.org/abs/2102.06959>
+This will be much easier to read. It's peculiar that this warranted a
+publication, I didn't think one could optimize some code and publish a paper
+about it, but maybe they inroduce a novel approach there, I'm not sure.
+Let's read it.
+
+This is certainly worthy of a publication, it seems: they *are* introducing a
+novel approach for how to automatically optimize a class of common forms of
+computation, and the calendar calculations are simply there as an example of how
+even highly irregularly behaving functions can be optimized in this framework.
+
+I have a question to Definition 2.2. Is it actually well-defined? If a function
+is a EAF, is its residual function unique?
+
+First, let's check the obvious:
+```
+(a * r + b) / d  = (ka * r + kb) / (kd)
+(5 * r + 3) / 7  = (10 * r + 6 ) / 14
+(5 * r + 3) % 7 != (10 * r + 6 ) % 14
+```
+
+Let's check the first equality computationally to see that I didn't mess up
+due to these being the tricky integral division:
+
+```python
+f1 = lambda r: (5 * r + 3) // 7
+f2 = lambda r: (10 * r + 6) // 14
+for i in range(-100, 100):
+  print(f1(i), f2(i), f1(i) == f2(i))
+```
+
+First of all, nice to know that Python's `//` is algebraically nice:
+`-1 // 7 == -1`. Didn't expect any sensibility out of their bunch. Second, yes,
+functions behave equally.
+
+The residual functions don't. For $r = 1$, we get 1 on the left and 2 on the
+right. So, unfortunately, it's not "*the*" residual but "*a*" residual, because
+different representations of a EAF lead to different residual functions.
+
+To fix this, we have to throw away definition 2.1 and replace it with EAF
+being *defined* by the three integral constants. Thus, functional extensionality
+doesn't hold and we must compare EAFs as integer triplets.
+
+Ok, I'll get back to this when I'm in the mood.
