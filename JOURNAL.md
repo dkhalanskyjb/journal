@@ -5833,3 +5833,375 @@ being *defined* by the three integral constants. Thus, functional extensionality
 doesn't hold and we must compare EAFs as integer triplets.
 
 Ok, I'll get back to this when I'm in the mood.
+
+
+2023-11-20
+----------
+
+After a deep dive into datetime formatting, I'm finally satisfied. I've sent the
+code to be reviewed: <https://github.com/Kotlin/kotlinx-datetime/pull/251>.
+It marks one of the biggest undertakings I've done so far, and I've spent the
+whole weekend celebrating that I'm finally done with it, modulo some
+supplementary things like updating `README.md` with examples and publishing the
+protocols of the design meetings. For now, I'd like to do something else for a
+bit.
+
+For example, I could go through the issues in the test module. Let's do that:
+<https://github.com/Kotlin/kotlinx.coroutines/issues?q=is%3Aissue+is%3Aopen+label%3Atest>
+
+Let's do <https://github.com/Kotlin/kotlinx.coroutines/issues/3800>, as it's
+causing much woe and should be fixed in some shape or form before the next
+release.
+
+The resolution to the problem in the end
+<https://github.com/Kotlin/kotlinx.coroutines/issues/3800#issuecomment-1816259708>
+is to roll back the timeout to 60 seconds and leave a setting for those who want
+to ensure that the tests complete quicker.
+
+Easier said than done, though: on the JVM, the obvious choice would be to use
+the system properties mechanism, but it's not available in multiplatform.
+In fact, **nothing** is available on all platforms, because Kotlin also supports
+JS tests running in web browser
+<https://kotlinlang.org/docs/js-project-setup.html#test-task>, and I don't think
+there's a way to pass anything that's not directly in the code to the
+heavily-sandboxed browser environment.
+
+The current policy seems to be that, if a JS is a show-stopper, we should
+sacrifice it rather than walk back on the whole idea altogether. Luckily, here,
+the choice is pretty inconsequential: even Node.JS supports reading the
+environment variables, so only the browser tests seem to be affected.
+
+So, let's get into the trenches. This time, I'll try to use my text editor
+exclusively and see if I feel any discomfort at any point.
+
+Here's the first attempt at documenting the behavior (always nice to start with
+that):
+
+```
+There's a built-in timeout of 60 seconds for the test body. If the test body doesn't complete within this time, 
+then the test fails with an [AssertionError]. The timeout can be changed for each test separately by setting the 
+[timeout] parameter. Additionally, setting the `kotlinx.coroutines.test.default_timeout` environment variable to 
+any string that can be parsed using [Duration.parse] (like `1m`, `30s` or `1500ms`) will change the default timeout 
+to that value for all tests whose [timeout] is not set explicitly.
+Note that environment variables and JVM system properties are separate concepts and are configured differently. 
+```
+
+I think using the `Duration` parsing facilities is a good choice:
+`kotlinx.coroutines.test.default_timeout=15s` is more straightforward than
+`kotlinx.coroutines.test.default_timeout_seconds=15`. It's not any more
+flexible, as in practice, no one is going to set it to a sub-second value or
+"1h"; in practice, this timeout is always going to be in seconds. But
+readability would suffer if we didn't mention seconds in any way.
+Speaking of readability, `kotlinx.coroutines.test.default_timeout=Infinity`
+reads much better than something like
+`kotlinx.coroutines.test.default_timeout_seconds=99999999`.
+
+Something irks me: what should happen when parsing fails?
+
+* If we silently ignore it, then we don't have a way to help someone who
+  unintentionally set it to the wrong value, like `15 s`:
+  <https://play.kotlinlang.org/#eyJ2ZXJzaW9uIjoiMS44LjIxIiwicGxhdGZvcm0iOiJqYXZhIiwiYXJncyI6IiIsIm5vbmVNYXJrZXJzIjp0cnVlLCJ0aGVtZSI6ImlkZWEiLCJjb2RlIjoiaW1wb3J0IGtvdGxpbi50aW1lLipcblxuZnVuIG1haW4oKSB7XG4gICAgcHJpbnRsbihEdXJhdGlvbi5wYXJzZShcIjE1IHNcIikpXG59In0=>
+  Sure, our docs specify that the value should parse to a valid `Duration`
+  value, *but* it's still rurprising to set your value to something and not have
+  it at all reflected in the execution process.
+* If we fail on unsuccessfully parsing it, could this open some doors to
+  misuse by malicious parties, like DDoS-ing a service?.. No, I doubt it.
+  If the attacker can set the system variable to anything they want, they can
+  ensure that most tests fail by setting the timeout to `1ms`. Also, what kind
+  of a service would run with `kotlinx-coroutines-test` exposed?
+
+Ok, that solves it: we should throw an exception. But when? It's also a tricky
+question!
+
+The most natural way to implement this is to store a variable like
+`private val DEFAULT_TIMEOUT: Duration` and try to initialize it using the
+environment variables. But let's say we're running several tests--what will
+happen then? The first attempt to call `runTest` will lead to the file
+containing `runTest` being initialized and the failure occurring, and that test
+will be marked as failed, *but* I'm pretty sure the following calls won't think
+that something's wrong... Let's check this.
+
+```kotlin
+package reproduce3800helper
+
+val globla = run {
+    var i = 0
+    repeat(100) { ++i }
+    if (i != 0) {
+        throw IllegalStateException("can not be set")
+    }
+    1000
+}
+```
+
+```kotlin
+package reproduce3800
+
+import kotlin.time.*
+
+fun main() {
+    println("running the main function")
+    try {
+        println("trying to access globla")
+        println(reproduce3800helper.globla)
+    } catch (e: Throwable) {
+        println(e)
+    }
+    println("trying to access globla again")
+    println(reproduce3800helper.globla)
+}
+```
+
+Here's the first time I felt the abscence of the IDE: I've no idea how to run
+`main` without the green triangle on the left.
+<https://stackoverflow.com/questions/21358466/gradle-to-execute-java-class-without-modifying-build-gradle>
+helped, and now I can do
+
+```sh
+./gradlew -PmainClass=reproduce3800.Reproduce3800Kt run
+```
+
+from the command line.
+
+The result:
+
+```
+running the main function
+trying to access globla
+java.lang.ExceptionInInitializerError
+trying to access globla again
+Exception in thread "main" java.lang.NoClassDefFoundError: Could not initialize class reproduce3800helper.Reproduce3800HelperKt
+        at reproduce3800.Reproduce3800Kt.main(Reproduce3800.kt:14)
+        at reproduce3800.Reproduce3800Kt.main(Reproduce3800.kt)
+```
+
+So, everything is somewhat fine after all: we can simply set the variable, fail
+to do so, and still have all the following tests fail. I still don't like this:
+if a thousand tests fail, you'll have trouble finding the one that failed with
+`ExceptionInInitializerError` that explains what went wrong. Running any test
+manually will reveal the problem, but I think we can do better with a tiny bit
+of effort. So, let's have `DEFAULT_TIMEOUT` fail with a clear message on every
+access.
+
+I implemented it, but it seems like my implementation doesn't work for some
+reason.
+
+```sh
+$ env kotlinx.coroutines.test.default_timeout=1blah env | grep kotlinx.coroutines
+kotlinx.coroutines.test.default_timeout=1blah
+$ env kotlinx.coroutines.test.default_timeout=1blah ./gradlew :kotlinx-coroutines-test:clean :kotlinx-coroutines-test:jvmTest
+```
+
+reports
+`System.getenv("kotlinx.coroutines.test.default_timeout") == null`
+using this code on the JVM:
+
+```kotlin
+"System.getenv(\"$name\") == ${System.getenv(name)}"
+```
+
+... Don't tell me Gradle doesn't update the environment variables and just
+reuses the environment its daemons were launched in?..
+
+```sh
+$ while pkill java; do sleep 1; done
+$ env kotlinx.coroutines.test.default_timeout=1blah ./gradlew :kotlinx-coroutines-test:clean :kotlinx-coroutines-test:jvmTest
+```
+
+Nope, still `null`. Let's print all the environment variables then.
+
+Here's a small promotion of the text editor I'm using (`kakoune`): given this
+text
+
+```sh
+[(PATH, /home/dmitry.khalanskiy/.local/share/JDK/11/bin:/home/dmitry.khalanskiy/.local/share/cargo/bin:/home/dmitry.khalanskiy/.local/bin:/home/dmitry.khalanskiy/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/dmitry.khalanskiy/.opam/default/bin), (LC_MEASUREMENT, ru_RU.UTF-8), (LC_TELEPHONE, ru_RU.UTF-8), (GDMSESSION, sway), (LC_TIME, ru_RU.UTF-8), (JDK_17_0, /usr/lib/jvm/java-17-openjdk-amd64), (DBUS_SESSION_BUS_ADDRESS, unix:path=/run/user/1001/bus), (COLORTERM, truecolor), (LC_PAPER, ru_RU.UTF-8), (USERNAME, dmitry.khalanskiy), (LOGNAME, dmitry.khalanskiy), (PWD, /home/dmitry.khalanskiy/IdeaProjects/kotlinx.coroutines), (TERM_PROGRAM_VERSION, 1.14.0), (CARGO_HOME, /home/dmitry.khalanskiy/.local/share/cargo), (LOCALE_ARCHIVE_2_27, /nix/store/x7zrg5s4c2nm3x0hhnq71jh3y8iaamf6-glibc-locales-2.37-45/lib/locale/locale-archive), (SHELL, /bin/bash), (LC_ADDRESS, ru_RU.UTF-8), (PAGER, less -iR), (TERMINFO, /nix/store/g2ksis13a2i4adkh2fx1q23x7i2j2q9c-foot-1.14.0-terminfo/share/terminfo), (GOPATH, /home/dmitry.khalanskiy/.local/share/go), (OLDPWD, /home/dmitry.khalanskiy/IdeaProjects/kotlinx.coroutines), (VISUAL, kak), (GTK_MODULES, gail:atk-bridge), (_JAVA_OPTIONS, -Djava.util.prefs.userRoot=/home/dmitry.khalanskiy/.config/java), (LEDGER_FILE, /home/dmitry.khalanskiy/.local/share/hledger.journal), (SYSTEMD_EXEC_PID, 2376), (XDG_SESSION_DESKTOP, sway), (SHLVL, 1), (LC_IDENTIFICATION, ru_RU.UTF-8), (TERMINAL, footclient), (LC_MONETARY, ru_RU.UTF-8), (BROWSER, firefox), (JAVA_HOME, /home/dmitry.khalanskiy/.local/share/JDK/11), (JDK_16_0, /home/dmitry.khalanskiy/.local/share/JDK/16), (I3SOCK, /run/user/1001/sway-ipc.1001.2424.sock), (TERM, foot), (LANG, en_US.UTF-8), (XDG_SESSION_ID, 2), (XDG_SESSION_TYPE, wayland), (NIX_REMOTE, daemon), (DISPLAY, :0), (GRADLE_USER_HOME, /home/dmitry.khalanskiy/.local/share/gradle), (WAYLAND_DISPLAY, wayland-1), (STACK_ROOT, /home/dmitry.khalanskiy/.local/share/stack), (SWAYSOCK, /run/user/1001/sway-ipc.1001.2424.sock), (LC_NAME, ru_RU.UTF-8), (XDG_SESSION_CLASS, user), (_, /usr/bin/env), (XCURSOR_SIZE, 24), (TERM_PROGRAM, foot), (JDK_11, /home/dmitry.khalanskiy/.local/share/JDK/11), (NIX_PATH, nixpkgs=/nix/var/nix/profiles/per-user/dmitry.khalanskiy/channels/nixpkgs:/nix/var/nix/profiles/per-user/dmitry.khalanskiy/channels:/home/dmitry.khalanskiy/.nix-defexpr/channels), (DESKTOP_SESSION, sway), (USER, dmitry.khalanskiy), (QT_ACCESSIBILITY, 1), (LC_NUMERIC, ru_RU.UTF-8), (XDG_SEAT, seat0), (EDITOR, kak), (JDK_8, /home/dmitry.khalanskiy/.local/share/JDK/8), (JDK_16, /home/dmitry.khalanskiy/.local/share/JDK/1.6), (XDG_VTNR, 3), (XDG_RUNTIME_DIR, /run/user/1001), (JDK_17, /home/dmitry.khalanskiy/.local/share/JDK/1.7), (JDK_18, /home/dmitry.khalanskiy/.local/share/JDK/8), (HOME, /home/dmitry.khalanskiy)]
+```
+
+I can select the line with `x`, press `s` to start selecting a subpart,
+enter `\),` to choose the separators between entries, press `Enter` to confirm,
+then press `a` to append some new text, and press the newline, and finally,
+`Esc` to exit the insertion mode to get this:
+
+
+```sh
+[(PATH, /home/dmitry.khalanskiy/.local/share/JDK/11/bin:/home/dmitry.khalanskiy/.local/share/cargo/bin:/home/dmitry.khalanskiy/.local/bin:/home/dmitry.khalanskiy/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/dmitry.khalanskiy/.opam/default/bin),
+(LC_MEASUREMENT, ru_RU.UTF-8),
+(LC_TELEPHONE, ru_RU.UTF-8),
+(GDMSESSION, sway),
+(LC_TIME, ru_RU.UTF-8),
+(JDK_17_0, /usr/lib/jvm/java-17-openjdk-amd64),
+(DBUS_SESSION_BUS_ADDRESS, unix:path=/run/user/1001/bus),
+(COLORTERM, truecolor),
+(LC_PAPER, ru_RU.UTF-8),
+(USERNAME, dmitry.khalanskiy),
+(LOGNAME, dmitry.khalanskiy),
+(PWD, /home/dmitry.khalanskiy/IdeaProjects/kotlinx.coroutines),
+(TERM_PROGRAM_VERSION, 1.14.0),
+(CARGO_HOME, /home/dmitry.khalanskiy/.local/share/cargo),
+(LOCALE_ARCHIVE_2_27, /nix/store/x7zrg5s4c2nm3x0hhnq71jh3y8iaamf6-glibc-locales-2.37-45/lib/locale/locale-archive),
+(SHELL, /bin/bash),
+(LC_ADDRESS, ru_RU.UTF-8),
+(PAGER, less -iR),
+(TERMINFO, /nix/store/g2ksis13a2i4adkh2fx1q23x7i2j2q9c-foot-1.14.0-terminfo/share/terminfo),
+(GOPATH, /home/dmitry.khalanskiy/.local/share/go),
+(OLDPWD, /home/dmitry.khalanskiy/IdeaProjects/kotlinx.coroutines),
+(VISUAL, kak),
+(GTK_MODULES, gail:atk-bridge),
+(_JAVA_OPTIONS, -Djava.util.prefs.userRoot=/home/dmitry.khalanskiy/.config/java),
+(LEDGER_FILE, /home/dmitry.khalanskiy/.local/share/hledger.journal),
+(SYSTEMD_EXEC_PID, 2376),
+(XDG_SESSION_DESKTOP, sway),
+(SHLVL, 1),
+(LC_IDENTIFICATION, ru_RU.UTF-8),
+(TERMINAL, footclient),
+(LC_MONETARY, ru_RU.UTF-8),
+(BROWSER, firefox),
+(JAVA_HOME, /home/dmitry.khalanskiy/.local/share/JDK/11),
+(JDK_16_0, /home/dmitry.khalanskiy/.local/share/JDK/16),
+(I3SOCK, /run/user/1001/sway-ipc.1001.2424.sock),
+(TERM, foot),
+(LANG, en_US.UTF-8),
+(XDG_SESSION_ID, 2),
+(XDG_SESSION_TYPE, wayland),
+(NIX_REMOTE, daemon),
+(DISPLAY, :0),
+(GRADLE_USER_HOME, /home/dmitry.khalanskiy/.local/share/gradle),
+(WAYLAND_DISPLAY, wayland-1),
+(STACK_ROOT, /home/dmitry.khalanskiy/.local/share/stack),
+(SWAYSOCK, /run/user/1001/sway-ipc.1001.2424.sock),
+(LC_NAME, ru_RU.UTF-8),
+(XDG_SESSION_CLASS, user),
+(_, /usr/bin/env),
+(XCURSOR_SIZE, 24),
+(TERM_PROGRAM, foot),
+(JDK_11, /home/dmitry.khalanskiy/.local/share/JDK/11),
+(NIX_PATH, nixpkgs=/nix/var/nix/profiles/per-user/dmitry.khalanskiy/channels/nixpkgs:/nix/var/nix/profiles/per-user/dmitry.khalanskiy/channels:/home/dmitry.khalanskiy/.nix-defexpr/channels),
+(DESKTOP_SESSION, sway),
+(USER, dmitry.khalanskiy),
+(QT_ACCESSIBILITY, 1),
+(LC_NUMERIC, ru_RU.UTF-8),
+(XDG_SEAT, seat0),
+(EDITOR, kak),
+(JDK_8, /home/dmitry.khalanskiy/.local/share/JDK/8),
+(JDK_16, /home/dmitry.khalanskiy/.local/share/JDK/1.6),
+(XDG_VTNR, 3),
+(XDG_RUNTIME_DIR, /run/user/1001),
+(JDK_17, /home/dmitry.khalanskiy/.local/share/JDK/1.7),
+(JDK_18, /home/dmitry.khalanskiy/.local/share/JDK/8),
+(HOME, /home/dmitry.khalanskiy)]
+```
+
+Hope I'm not exposing any secrets. At a glance, I think I'm not, but you never
+know what people with too much free time can find useful.
+
+`_` being `/usr/bin/env` is strange: does Java call `/usr/bin/env` to get the
+environment variables? In any case, it seems like all of my variables except
+the newly-set one are there.
+
+Ah, well. I'll have a meeting with my more experienced colleagues soon, maybe
+they know what's going on.
+
+Meanwhile: <https://github.com/Kotlin/kotlinx.coroutines/issues/3820#issuecomment-1818846416>
+What even is this? Are our issue trackers just places to hang out at now?
+I'd say that reading at least the last few messages before replying is not even
+*politeness* but the basic social norm of online behavior. What am I even
+supposed to do with people who just come and spam the issue tracker as if they
+are entitled to personal answers from the maintainers? Should we also come to
+their repositories to fix bugs? How about we do some actual work instead?
+
+One could say that I'm overreacting to just a couple of messages, but in the
+end, reading these messages and reacting to them do constitute a significant
+chunk of my time at work. Maybe if I didn't care what to reply and only thought
+about my answers for as long as the posters thought about their questions, it
+wouldn't take too long, but given how much I have to answer, I'd quickly bury
+the issue tracker under a thick layer of spam.
+
+Coming back to the environment variables: I didn't get the chance to ask this
+question, there were more important things on the agenda, so for now, I'll try
+making sense of this myself. Luckily, it seems like I've found the answer:
+<https://stackoverflow.com/a/59041173>. Somehow, Gradle filters the environment
+variables. Interestingly, it knows about `TERM_PROGRAM=foot` and various such
+things that are not in my dotfiles, so it's not just sourcing them. Where does
+it get the resulting environment from? At this point, this is just curiosity,
+not an actual technical question I have to solve: after all, I can just appease
+Gradle by giving it the exact incantation it's interested in.
+
+I'll finish writing the JS implementation and then add an integration test.
+On Node, accessing the environment variable seems simple enough:
+
+```sh
+$ env kotlinx.coroutines.test.default_timeout=1s \
+node -e 'console.log(process.env["kotlinx.coroutines.test.default_timeout"])'
+1s
+```
+
+The bigger question is, how to properly access it from Kotlin/JS.
+
+`kotlinx-coroutines-core/js/src/CoroutineContext.kt` does the following:
+
+```kotlin
+private external val navigator: dynamic
+private const val UNDEFINED = "undefined"
+internal external val process: dynamic
+
+internal fun createDefaultDispatcher(): CoroutineDispatcher = when {
+    // Check if we are running under jsdom. WindowDispatcher doesn't work under jsdom because it accesses MessageEvent#source.
+    // It is not implemented in jsdom, see https://github.com/jsdom/jsdom/blob/master/Changelog.md
+    // "It's missing a few semantics, especially around origins, as well as MessageEvent source."
+    isJsdom() -> NodeDispatcher
+    // Check if we are in the browser and must use window.postMessage to avoid setTimeout throttling
+    jsTypeOf(window) != UNDEFINED && window.asDynamic() != null && jsTypeOf(window.asDynamic().addEventListener) != UNDEFINED ->
+        window.asCoroutineDispatcher()
+    // If process is undefined (e.g. in NativeScript, #1404), use SetTimeout-based dispatcher
+    jsTypeOf(process) == UNDEFINED || jsTypeOf(process.nextTick) == UNDEFINED -> SetTimeoutDispatcher
+    // Fallback to NodeDispatcher when browser environment is not detected
+    else -> NodeDispatcher
+}
+```
+
+`internal external` is a nice combination in and of itself.
+
+It looks like that, in Kotlin/JS, that JS line becomes something like
+
+```kotlin
+internal external val process: dynamic
+
+internal fun environmentVariableImpl(name: String): String? {
+    if (jsTypeOf(process) == "undefined") return null
+    if (jsTypeOf(process.env) == "undefined") return null
+    return process.env[name] as? String
+}
+```
+
+The nice thing about being single-threaded is that you don't have to think about
+parallel interactions. If `process.env` is not `"undefined"` on line A and you
+didn't do anything with it, it won't be `"undefined"` on line B. Such a
+refreshing experience!
+
+Ok, let's try setting the environment variable.
+
+```kotlin
+tasks.withType(Test::class).all {
+    environment("kotlinx.coroutines.test.default_timeout", "1ms")
+}
+```
+
+This may seem like it will work, but for some reason, `Test::class` only matches
+`jvmTest`. This is where I'm launching the IDE today: without it, I don't know
+how to browse the class hierarchy of Gradle tasks.
+
+Googling this problem, I get <https://stackoverflow.com/a/65375061>, which is
+what I have, but inaccurate.
+
+Using the IDE, I see that `Task` is inherited from `AbstractTestTask`.
+Sure enough, `AbstractTestTask` matches everything. The problem is,
+`AbstractTestTask` doesn't have the `environment` call; something called
+`ProcessForkOptions` does. Unfortunately, only `jvmTest` matches both
+`AbstractTestTask` and `ProcessForkOptions`. There's simply no functionality
+in the Kotlin Gradle plugin to set the environment variables of all tests, it
+would seem.
+
+Alright, I'm asking my colleagues, I'm clearly out of my depth here. It's not
+as easy to pass an environment variable to a process as one would think!
+
+So there's that...
