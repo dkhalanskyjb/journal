@@ -6616,3 +6616,165 @@ manifest, so we need to move the manifest-specification code to the new place.
 
 With that, I have my first PR for the week:
 <https://github.com/Kotlin/kotlinx.coroutines/pull/3948>.
+
+Of course, such endeavors don't stop at that. Fixing the issue does not mean it
+won't happen again. To ensure the problem gets caught, we need to write tests.
+
+I don't know quite how to test this. I have no idea how `module-info.class` is
+structured internally, and writing my own parser for `module-info.java` also
+seems a bit excessive. Perhaps I could utilize the existing tools?
+
+```sh
+#!/bin/sh
+# Usage: `clean=true sh check_module_info.sh`
+
+modules_with_module_info="
+:kotlinx-coroutines-core:jvm
+ui:kotlinx-coroutines-javafx:
+ui:kotlinx-coroutines-android:
+ui:kotlinx-coroutines-swing:
+:kotlinx-coroutines-test:jvm
+:kotlinx-coroutines-debug:
+reactive:kotlinx-coroutines-reactive:
+reactive:kotlinx-coroutines-jdk9:
+reactive:kotlinx-coroutines-reactor:
+reactive:kotlinx-coroutines-rx3:
+reactive:kotlinx-coroutines-rx2:
+"
+
+m2_path="${m2_path:-$HOME/.m2}"
+
+if [ "${clean:+x}" = "x" ]; then
+    rm -fr "$m2_path"
+    ./gradlew clean publishToMavenLocal
+fi
+
+for entry in $modules_with_module_info; do
+    prefix=$(printf "%s" "$entry" | awk -F: '{ print $1 }')
+    module=$(printf "%s" "$entry" | awk -F: '{ print $2 }')
+    platform=$(printf "%s" "$entry" | awk -F: '{ print $3 }')
+    path="${prefix:-.}/$module${platform:+/}$platform/src/module-info.java"
+    artifact_name=$module${platform:+-}$platform
+    artifact=$(
+        find $m2_path/repository/org/jetbrains/kotlinx/$artifact_name \
+            -name "$artifact_name-*.jar" \
+            -not -name '*sources.jar' \
+            -not -name '*javadoc.jar' \
+            -not -name '*all.jar' \
+    )
+    jar --describe-module --file "$artifact" --release 9 | while read line; do
+        if [ "$line" != "requires java.base mandated" -a "$line" != "releases: 9" ] && ! printf "%s" "$line" | grep -q 'jar:file://'; then
+            if ! grep -q "$line" "$path"; then
+                printf "Extra line '$line' not found in $path\n"
+            fi
+        fi
+    done
+done
+```
+
+A big problem I noticed during writing this is that I also published the
+`kotlinx-coroutines-debug-VERSION-all.jar` artifact. I wonder why it happened.
+Let's keep this in mind.
+
+An issue with this script is that if some entries are missing from
+`module-info.java`, we won't know this from this test. For example, if an
+empty `module-info.class` gets published somehow. Still, as a smoke test, this
+could be fine. Sure, it's Linux-specific, but we only need to test this somehow,
+not to provide a cross-platform library for testing `module-info`
+implementations. Alas, it doesn't work, even with these restrictions.
+
+The output is
+
+```
+Extra line 'requires java.instrument static' not found in ./kotlinx-coroutines-core/jvm/src/module-info.java
+Extra line 'requires jdk.unsupported static' not found in ./kotlinx-coroutines-core/jvm/src/module-info.java
+Extra line 'requires kotlin.stdlib transitive' not found in ./kotlinx-coroutines-core/jvm/src/module-info.java
+Extra line 'uses kotlinx.coroutines.CoroutineExceptionHandler' not found in ./kotlinx-coroutines-core/jvm/src/module-info.java
+Extra line 'uses kotlinx.coroutines.internal.MainDispatcherFactory' not found in ./kotlinx-coroutines-core/jvm/src/module-info.java
+Extra line 'provides kotlinx.coroutines.internal.MainDispatcherFactory with kotlinx.coroutines.javafx.JavaFxDispatcherFactory' not found in ui/kotlinx-coroutines-javafx/src/module-info.java
+Extra line 'provides kotlinx.coroutines.internal.MainDispatcherFactory with kotlinx.coroutines.android.AndroidDispatcherFactory' not found in ui/kotlinx-coroutines-android/src/module-info.java
+Extra line 'provides kotlinx.coroutines.internal.MainDispatcherFactory with kotlinx.coroutines.swing.SwingDispatcherFactory' not found in ui/kotlinx-coroutines-swing/src/module-info.java
+Extra line 'provides kotlinx.coroutines.CoroutineExceptionHandler with kotlinx.coroutines.test.internal.ExceptionCollectorAsService' not found in ./kotlinx-coroutines-test/jvm/src/module-info.java
+Extra line 'provides kotlinx.coroutines.internal.MainDispatcherFactory with kotlinx.coroutines.test.internal.TestMainDispatcherFactory' not found in ./kotlinx-coroutines-test/jvm/src/module-info.java
+Extra line 'contains kotlinx.coroutines.test.internal' not found in ./kotlinx-coroutines-test/jvm/src/module-info.java
+Extra line 'provides kotlinx.coroutines.reactive.ContextInjector with kotlinx.coroutines.reactor.ReactorContextInjector' not found in reactive/kotlinx-coroutines-reactor/src/module-info.java
+```
+
+Let's go through these as groups.
+
+* `requires java.instrument static` is missing because the corresponding like is
+  actually `requires static java.instrument;`. I don't know why the utility
+  provides its output with a syntax different from the one used in
+  `module-info.java`. I tried swapping the name with the modifier in the
+  Java file, and the syntax highlighting was no longer active.
+* `uses kotlinx.coroutines.CoroutineExceptionHandler` and other places use
+  fully qualified names, whereas the `module-info.java` files are written using
+  imports, so this looks like `uses CoroutineExceptionHandler` with an
+  `import kotlinx.coroutines.CoroutineExceptionHandler` on top.
+* `contains kotlinx.coroutines.test.internal` is something that's simply not in
+  the original file. I don't know where it comes from.
+
+It's *possible* to work around these individually, but this looks like the limit
+of applicability of shell scripts. Maybe I'll have to look into libraries that
+the `jar` utility uses to parse `module-info.class`.
+
+But first, `kotlinx-coroutines-debug-VERSION-all`. What's it doing here?
+
+```sh
+$ ls ~/.m2/repository/org/jetbrains/kotlinx/kotlinx-coroutines-debug/1.7.2-SNAPSHOT/
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT-all.jar      kotlinx-coroutines-debug-1.7.2-SNAPSHOT.module       maven-metadata-local.xml
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT.jar          kotlinx-coroutines-debug-1.7.2-SNAPSHOT.pom          
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT-javadoc.jar  kotlinx-coroutines-debug-1.7.2-SNAPSHOT-sources.jar  
+$ cd ~/.m2/repository/org/jetbrains/kotlinx/kotlinx-coroutines-debug/1.7.2-SNAPSHOT/
+$ diff kotlinx-coroutines-debug-1.7.2-SNAPSHOT-all.jar kotlinx-coroutines-debug-1.7.2-SNAPSHOT.jar
+Binary files kotlinx-coroutines-debug-1.7.2-SNAPSHOT-all.jar and kotlinx-coroutines-debug-1.7.2-SNAPSHOT.jar differ
+```
+
+I think the `-all` artifact is the output from the shadow jar task, right?
+
+```sh
+$ comm -3 <(unzip -l kotlinx-coroutines-debug-1.7.2-SNAPSHOT-all.jar  | awk '{print $4}' | sort -u) <(unzip -l kotlinx-coroutines-debug-1.7.2-SNAPSHOT.jar  | awk '{print $4}' | sort -u)
+        META-INF/versions/
+        META-INF/versions/9/
+        META-INF/versions/9/module-info.class
+```
+
+Yep, on-point. The only thing left is to discover how to exclude it from
+publication.
+
+```sh
+$ git grep -l publish | grep -v '^reactive' | grep -v '^kotlinx-coroutines-core'
+CHANGES_UP_TO_1.7.md
+README.md
+benchmarks/src/jmh/kotlin/benchmarks/flow/scrabble/ReactorPlaysScrabble.kt
+build.gradle
+buildSrc/src/main/kotlin/CommunityProjectsBuild.kt
+buildSrc/src/main/kotlin/Projects.kt
+buildSrc/src/main/kotlin/Publishing.kt
+buildSrc/src/main/kotlin/animalsniffer-conventions.gradle.kts
+buildSrc/src/main/kotlin/bom-conventions.gradle.kts
+buildSrc/src/main/kotlin/java-modularity-conventions.gradle.kts
+buildSrc/src/main/kotlin/kover-conventions.gradle.kts
+gradle/publish-mpp-root-module-in-platform.gradle
+gradle/publish.gradle
+integration-testing/README.md
+integration-testing/build.gradle
+integration-testing/smokeTest/build.gradle
+kotlinx-coroutines-bom/build.gradle
+```
+
+From these, `gradle/publish.gradle` seems the most relevant.
+
+`maven-publish` is used, and
+<https://imperceptiblethoughts.com/shadow/publishing/> says that Shadow will
+automatically configure publishing as needed.
+Ok, but it's not needed. What do I do now?
+
+Googling "gradle exclude jar from publication," I find this:
+<https://github.com/gradle/gradle/issues/11150> It looks scary:
+
+> In order to exclude files one can create a custom JAR artifact, but the
+> problem is that the generated POM will be lacking all of the dependencies.
+> This is especially noticeable in multi-module projects.
+
+I'll need to check the resulting POM as well, it seems!
