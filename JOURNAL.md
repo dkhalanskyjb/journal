@@ -6215,8 +6215,8 @@ Let's try this one: <https://github.com/Kotlin/kotlinx.coroutines/issues/3944>
 
 ```sh
 rm -r ~/.m2
-./gradlew clean :kotlinx-coroutines-debug:publishToMavenLocal
-jar --describe-module --file ~/.m2/repository/org/jetbrains/kotlinx/kotlinx-coroutines-debug/1.7.2-SNAPSHOT/kotlinx-coroutines-debug-1.7.2-SNAPSHOT.jar --release 9`
+./gradlew :kotlinx-coroutines-debug:clean :kotlinx-coroutines-debug:publishToMavenLocal
+jar --describe-module --file ~/.m2/repository/org/jetbrains/kotlinx/kotlinx-coroutines-debug/1.7.2-SNAPSHOT/kotlinx-coroutines-debug-1.7.2-SNAPSHOT.jar --release 9
 ```
 
 does confirm the issue.
@@ -6240,3 +6240,73 @@ mean also upgrading to Gradle 8.0, and it's probably not worth it.
 
 Manually calling `exclude("module-info.java")` also seems to do nothing.
 Let's dive in deeper... but not today. I'm done, without having helped anyone.
+
+2023-11-21
+----------
+
+Continuing with <https://github.com/Kotlin/kotlinx.coroutines/issues/3944>.
+
+Looking into the jar file, I found one of the culprits:
+
+```
+META-INF/versions/9/module-info.class
+```
+
+It turns out, the shadow plugin didn't properly exclude all the module-info
+files that can be picked up by the JVM, only one of them. If I manually exclude
+another one via `exclude('META-INF/versions/9/module-info.class')`, I get closer
+to the desired result:
+
+```
+No module descriptor found. Derived automatic module.
+
+kotlinx.coroutines.debug@1.7.2-SNAPSHOT automatic
+requires java.base mandated
+provides reactor.blockhound.integration.BlockHoundIntegration with kotlinx.coroutines.debug.CoroutinesBlockHoundIntegration
+contains kotlinx.coroutines.debug
+contains kotlinx.coroutines.debug.internal
+contains kotlinx.coroutines.debug.junit4
+contains kotlinx.coroutines.debug.junit5
+contains kotlinx.coroutines.repackaged.net.bytebuddy
+...
+```
+
+At least we're not claiming to provide bytebuddy. Still, the explicit
+module-info that we define is something else, and somehow it doesn't get picked
+up.
+
+Looking at
+
+```sh
+find kotlinx-coroutines-debug/ | grep class'$'
+```
+
+after building the jar, I see that `module-info.class` does get built:
+
+```
+kotlinx-coroutines-debug/build/classes/kotlin/java9/module-info.class
+```
+
+Clearly, someone has already encountered the problem of needing to include
+`module-info.class`. Googling "shadowjar include module-info," I get
+<https://github.com/johnrengelman/shadow/issues/710>. Wait a second...
+
+> ShadowJar extends from Gradle's built in Jar task [...]
+> which is what provides all the include/exclude capabilities.
+> None of that code is aware to the source of the files that are being copied so
+> it doesn't appear possible to use the native capabilities to exclude
+> module-info.class from dependencies, but include it from the local source set
+> output.
+
+So, our `module-info.class` could get excluded by accident! But where *is* it
+supposed to be located?
+
+```sh
+$ unzip -l ~/.m2/repository/org/jetbrains/kotlinx/kotlinx-coroutines-core-jvm/1.7.2-SNAPSHOT/kotlinx-coroutines-core-jvm-1.7.2-SNAPSHOT.jar | grep module-info
+      882  1980-02-01 00:00   META-INF/versions/9/module-info.class
+```
+
+Oh. Nice. So, I *should not* exclude `META-INF/versions/9/module-info.class`.
+Instead, I must somehow make sure that *the correct version* of it gets
+included. Now I'll have to find a way to specify that some files should not
+be overwritten while shading.
