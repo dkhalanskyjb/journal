@@ -6310,3 +6310,309 @@ Oh. Nice. So, I *should not* exclude `META-INF/versions/9/module-info.class`.
 Instead, I must somehow make sure that *the correct version* of it gets
 included. Now I'll have to find a way to specify that some files should not
 be overwritten while shading.
+
+Of course, there's an issue about that as well:
+<https://github.com/johnrengelman/shadow/issues/304>
+The recommended solution for *that specific issue* is
+<https://stackoverflow.com/questions/32887966/shadow-plugin-gradle-what-does-mergeservicefiles-do>,
+but what I'm encountering is something else.
+
+Truly, the days when I have to remember the word "gradle" are the least pleasant
+workdays. If this were my own project, I'd throw away Gradle completely and
+replace it with several `Makefile`s. The amount of effort I'm spending to make
+Gradle do fairly trivial things just because it uses the OOP-style top-down
+approach rather than the composable bottom-up ruleset and I have to somehow jam
+my requirements down its throat is just miserable. I've read a book that
+explained just how perfect Gradle is compared to Maven, so I can see what they
+were trying to achieve, but if we just look at the end result, Gradle seems to
+waste more time than it saves compared to a custom set of rules on top of
+something like Ninja. Just look at the wording:
+
+> None of that code is aware to the source of the files that are being copied so
+> it doesn't appear possible
+
+This just screams that Gradle is the wrong abstraction. When you *have* to peek
+into an abstraction, it's bad already, but when you *can't*, it's much worse.
+
+Ok, well, this ranting is useless: clearly, I will have to live with this, no
+matter how unpleasant it is.
+
+I fire up my IDE once again to look into how `mergeServiceFiles` is implemented
+to see if it's straightforward to just tell the thing to leave my files alone.
+Why isn't this even the default? Why do files in the shaded library take
+precedence? I can't figure out what benefits that could bring.
+
+The whole `ShadowJar.java` (<https://github.com/johnrengelman/shadow/blob/main/src/main/groovy/com/github/jengelman/gradle/plugins/shadow/tasks/ShadowJar.java>),
+along with `Jar` that it inherits from doesn't seem to be all that helpful.
+`mergeServiceFiles` is implemented using a general `transform` mechanism, which
+is described here:
+<https://maven.apache.org/plugins/maven-shade-plugin/examples/resource-transformers.html>
+
+`DontInccludeResourceTransformer` is possibly what I'm looking for. I'm not sure
+if it means "don't include the shaded resources" or "don't include the resources
+at all," so let's just try it!
+
+If I can.
+
+```groovy
+def shadowJarTask = shadowJar {
+    classifier null
+    // Shadow only byte buddy, do not package kotlin stdlib
+    configurations = [project.configurations.shadowDeps]
+    relocate('net.bytebuddy', 'kotlinx.coroutines.repackaged.net.bytebuddy')
+    try {
+        transform(DontIncludeResourceTransformer.class, new Action<DontIncludeResourceTransformer>() {
+            @Override
+            void execute(DontIncludeResourceTransformer dontIncludeResourceTransformer) {
+                dontIncludeResourceTransformer.resource("module-info.class")
+            }
+        });
+    } catch (IllegalAccessException e) {
+    } catch (InstantiationException e) {
+    }
+
+    manifest {
+        attributes "Premain-Class": "kotlinx.coroutines.debug.AgentPremain"
+        attributes "Can-Redefine-Classes": "true"
+    }
+}
+```
+
+fails with
+
+> `No signature of method: build_4u6g4d26qfndzikzbvofa8lrc.shadowJar() is applicable for argument types: (build_4u6g4d26qfndzikzbvofa8lrc$_run_closure6) values: [build_4u6g4d26qfndzikzbvofa8lrc$_run_closure6@101c8417]`
+
+I know that, clearly, I did something wrong, but what have I done to deserve the
+punishment of such a vague error message?
+Maybe I *should* rewrite this into `Makefile`s one subproject at a time. After
+all, Gradle prides itself on being able to integrate with existing build tools,
+so I'll be able to gradually introduce a more straightforward build system.
+I'm wondering how often someone calls `Makefile`s straightforward.
+
+Attempt 2 that I arrived at by diving into the implementation at least builds:
+
+```groovy
+def shadowJarTask = shadowJar {
+    classifier null
+    // Shadow only byte buddy, do not package kotlin stdlib
+    configurations = [project.configurations.shadowDeps]
+    relocate('net.bytebuddy', 'kotlinx.coroutines.repackaged.net.bytebuddy')
+    var transformation = new DontIncludeResourceTransformer()
+    transformation.resource = "module-info.class"
+    transform(transformation)
+
+    manifest {
+        attributes "Premain-Class": "kotlinx.coroutines.debug.AgentPremain"
+        attributes "Can-Redefine-Classes": "true"
+    }
+}
+```
+
+But alas, it doesn't work: the `module-info.class` from the shaded library is
+included. Maybe `DontIncludeResourceTransformer` is for the project files and
+I need `IncludeResourceTransformer` (yes, the names are not of much help).
+
+```
+  - In plugin 'com.github.jengelman.gradle.plugins.shadow.ShadowBasePlugin' type 'com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar' property 'transformers.IncludeResourceTransformer$0.file' doesn't have a configured value.
+    
+    Reason: This property isn't marked as optional and no value has been configured.
+    
+    Possible solutions:
+      1. Assign a value to 'transformers.IncludeResourceTransformer$0.file'.
+      2. Mark property 'transformers.IncludeResourceTransformer$0.file' as optional.
+```
+
+Ok, let's pay attention...
+
+```groovy
+    var transformation = new IncludeResourceTransformer()
+    transformation.file = new File("build/classes/kotlin/java9/module-info.class")
+    transformation.resource = "META-INF/versions/9/module-info.class"
+    transform(transformation)
+```
+
+This, too, builds, but doesn't affect the result: the wrong `module-info.class`
+still gets included. This is surely getting ridiculous. Should I go to Stack
+Overflow and ask a question there?
+
+<https://stackoverflow.com/questions/69431812/maven-shade-plugin-override-a-file>
+has a useful advice: maybe we could explicitly exclude the `module-info.class`
+file and then include the one that we want.
+
+Maybe ChatGPT (3, I don't have access to 4) knows?
+
+```
+Hey ChatGPT, please help me.
+I'm trying to use the Shadow plugin for Gradle. There's a file with the same path in both my project and the jar I'm trying to shade, and I want my file to replace the one from the shaded jar. How do I configure the Gradle task?
+ChatGPT
+
+---
+
+Certainly! When using the Shadow plugin for Gradle, you can configure it to handle resource merging and file replacement through the merge strategy. In your case, you want to ensure that a specific file from your project replaces the one from the shaded JAR. Here's an example configuration:
+
+gradle
+
+plugins {
+    id 'com.github.johnrengelman.shadow' version '7.0.0'
+}
+
+shadowJar {
+    // other shadowJar configurations
+
+    merge service.provider
+}
+
+In the example above, service.provider is the name of the strategy for merging resources. This strategy merges resources from the shadowed JAR with the resources from the project, allowing you to specify how conflicts should be resolved.
+
+Now, to replace a specific file, you can use the exclude and from methods within the merge block. Here's an example:
+
+gradle
+
+shadowJar {
+    // other shadowJar configurations
+
+    merge service.provider
+
+    merge {
+        exclude 'path/to/conflicting/file/in/shaded/jar'
+        from 'path/to/replacement/file/in/project'
+    }
+}
+
+In this example, replace 'path/to/conflicting/file/in/shaded/jar' with the path of the file you want to exclude from the shaded JAR, and 'path/to/replacement/file/in/project' with the path of the file from your project that should replace the one in the shaded JAR.
+
+This configuration ensures that the specified file from your project will replace the corresponding file in the shaded JAR during the shadowJar task execution.
+
+Make sure to adapt the paths according to your project's structure.
+```
+
+It hallucinated a response. Now's the time to go to the Shadow's issue tracker
+and complain that the solution I obtained from ChatGPT doesn't work.
+
+```groovy
+def shadowJarTask = shadowJar {
+    classifier null
+    // Shadow only byte buddy, do not package kotlin stdlib
+    configurations = [project.configurations.shadowDeps]
+    relocate('net.bytebuddy', 'kotlinx.coroutines.repackaged.net.bytebuddy')
+    var transformation1 = new DontIncludeResourceTransformer()
+    transformation1.resource = "META-INF/versions/9/module-info.class"
+    transform(transformation1)
+    var transformation2 = new IncludeResourceTransformer()
+    transformation2.file = new File("build/classes/kotlin/java9/module-info.class")
+    transformation2.resource = "META-INF/versions/9/module-info.class"
+    transform(transformation2)
+
+    manifest {
+        attributes "Premain-Class": "kotlinx.coroutines.debug.AgentPremain"
+        attributes "Can-Redefine-Classes": "true"
+    }
+}
+```
+?
+
+No, no result. The file is the correct one: if I specify something non-existent,
+the build fails. I'm trying to exclude the "bad" file and replace it with the
+"good" file, but to no avail.
+
+Maybe `grep.app` will show me the way?
+<https://grep.app/search?q=IncludeResourceTransformer>.
+
+<https://github.com/apache/maven-shade-plugin/blob/master/src/main/java/org/apache/maven/plugins/shade/resource/UseDependencyReducedPom.java>
+Hey, that's what I just tried!
+
+Maybe the `module-info.class` I'm trying to put into the jar is somehow the
+wrong one?
+
+```sh
+$ strings ./kotlinx-coroutines-debug/build/classes/kotlin/java9/module-info.class
+SourceFile
+module-info.java
+Module
+5.7.0
+1.7.0
+module-info
+kotlinx.coroutines.debug
+        java.base
+java.management
+java.instrument
+kotlin.stdlib
+kotlinx.coroutines.core
+net.bytebuddy
+net.bytebuddy.agent
+org.junit.jupiter.api
+org.junit.platform.commons
+kotlinx/coroutines/debug/junit4
+kotlinx/coroutines/debug/junit5
+```
+
+This seems to corellate exactly to `module-info.java`, so no, it's not that.
+
+I'm starting to lose patience. I've been at it for more than an hour at this
+point only today. I'd be happy to understand how to do this properly, but I
+don't even know where to look.
+
+Maybe the code that already puts the `module-info.class` into other jars would
+work if I explicitly add it to the shadow jar task?
+<https://github.com/Kotlin/kotlinx.coroutines/blob/9f9cb872ba7118cf2caf43d65815dc86fd0edb21/buildSrc/src/main/kotlin/Java9Modularity.kt#L145-L149>
+
+```groovy
+def shadowJarTask = shadowJar {
+    classifier null
+    // Shadow only byte buddy, do not package kotlin stdlib
+    configurations = [project.configurations.shadowDeps]
+    relocate('net.bytebuddy', 'kotlinx.coroutines.repackaged.net.bytebuddy')
+
+    manifest {
+        attributes "Premain-Class": "kotlinx.coroutines.debug.AgentPremain"
+        attributes "Can-Redefine-Classes": "true"
+    }
+
+    manifest {
+        attributes("Multi-Release" to true)
+    }
+    def compileJavaModuleInfo = tasks.named("compileModuleInfoJava")
+    from(compileJavaModuleInfo) {
+        // Include **only** file we are interested in as JavaCompile output also contains some tmp files
+        include("module-info.class")
+        into("META-INF/versions/9/")
+    }
+}
+```
+
+Of course not.
+
+```
+> Could not get unknown property 'to' for object of type com.github.jengelman.gradle.plugins.shadow.tasks.DefaultInheritManifest.
+```
+
+I'm clearly trying something exotic: according to Google,
+
+> `No results found for "Could not get unknown property 'to' for object of type".`
+
+Screw this, I'll read the entirety of
+<https://imperceptiblethoughts.com/shadow/>.
+
+* <https://imperceptiblethoughts.com/shadow/getting-started/#default-java-groovy-tasks>
+  is not complete: `module-info.class` is also excluded.
+
+After carefully reading the documentation, I think I gained some understanding.
+
+* Once we write `exclude`, the file passed as the argument won't be in the
+  resulting jar.
+* `Transformer` also isn't of much help: it's invoked on the entries of the
+  resulting jar before being written, possibly rewriting it several times when
+  new information arrives. This is why all the transformers provided out of the
+  box don't take the nature of where the entries come from into account.
+
+With this newfound understanding, I decided that there's just no better way than
+creating a new zip file and copying everything there, along with the new
+`module-info.class`. Luckily, someone provided some code under the "shadow
+throws away our module-info" issue that only needs to be slightly adapted:
+<https://github.com/johnrengelman/shadow/issues/710#issuecomment-1280585784>.
+
+One trick we must keep in mind is that the new jar file will have its own
+manifest, so we need to move the manifest-specification code to the new place.
+
+With that, I have my first PR for the week:
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3948>.
