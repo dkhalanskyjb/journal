@@ -6204,4 +6204,39 @@ would seem.
 Alright, I'm asking my colleagues, I'm clearly out of my depth here. It's not
 as easy to pass an environment variable to a process as one would think!
 
+Made a PR with what I already have:
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3945>
+
 So there's that...
+
+It would be nice to strive to solve an issue per day, but today, I failed to
+do that. I only have 15 minutes of work left, but let's make that count.
+Let's try this one: <https://github.com/Kotlin/kotlinx.coroutines/issues/3944>
+
+```sh
+rm -r ~/.m2
+./gradlew clean :kotlinx-coroutines-debug:publishToMavenLocal
+jar --describe-module --file ~/.m2/repository/org/jetbrains/kotlinx/kotlinx-coroutines-debug/1.7.2-SNAPSHOT/kotlinx-coroutines-debug-1.7.2-SNAPSHOT.jar --release 9`
+```
+
+does confirm the issue.
+
+The `kotlinx-coroutines-debug` jar is special in that it's not produced by the
+normal build mechanism, but instead it's made using the "shadow jar" plugin that
+allows us to put another library's classes alongside ours.
+
+Googling "shadowjar module-info" suggests
+<https://github.com/johnrengelman/shadow/issues/352>: a `module-info.java` from
+the shaded library leaks into the main library. Yes, it sounds like what we are
+dealing with here!
+
+Unfortunately, this fix seems to have been there since shadow 4.0.0:
+<https://github.com/johnrengelman/shadow/commit/275382cef77df1cdce2b2b53568541933fd5d9cd>
+And we are using 7.1.2. Likely, that's not it. It also looks like they did
+nothing with the Java modules since then:
+<https://github.com/johnrengelman/shadow/releases?q=module&expanded=true>
+I don't see a point in upgrading to 8.1.1, which is the latest now. This would
+mean also upgrading to Gradle 8.0, and it's probably not worth it.
+
+Manually calling `exclude("module-info.java")` also seems to do nothing.
+Let's dive in deeper... but not today. I'm done, without having helped anyone.
