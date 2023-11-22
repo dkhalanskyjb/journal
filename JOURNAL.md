@@ -6778,3 +6778,88 @@ Googling "gradle exclude jar from publication," I find this:
 > This is especially noticeable in multi-module projects.
 
 I'll need to check the resulting POM as well, it seems!
+
+... The POM seems fine.
+
+2023-11-22
+----------
+
+Yesterday, I had no deadlines. Today, I have five, and they are all quite near!
+
+* The next release for coroutines needs to happen soon, so we'll need to somehow
+  roll out <https://github.com/Kotlin/kotlinx.coroutines/pull/3945>;
+* For the same reason, I'll need to finish
+  <https://github.com/Kotlin/kotlinx.coroutines/pull/3948> until then;
+* I have to review the WASM implementation for the datetime library:
+  <https://github.com/Kotlin/kotlinx-datetime/pull/315>;
+* I need to review a chapter about testing coroutines for a book;
+* I have to provide a roadmap for the datetime project.
+
+All of this is somewhere until the 1st of December, which is only a bit more
+than a week away.
+
+I'll start by providing actionable points to
+<https://github.com/Kotlin/kotlinx-datetime/pull/315>. Right now, the changes
+are so intrusive that it's even hard to properly review them. I've sent a couple
+of comments about this.
+
+With regards to
+<https://github.com/Kotlin/kotlinx-datetime/pull/315>, everything's worse than
+I suspected. <https://github.com/joffrey-bion> shared some code that solves the
+same problem:
+<https://github.com/joffrey-bion/krossbow/blob/d2dce0e32e28fdbe7754b87df9b1ca111c133911/autobahn-tests/build.gradle.kts#L175-L237>
+
+An interesting detail is that there is an `environment` function for
+native tests. Maybe I missed something, or maybe it's somehow in a different
+interface. I'll need to take a look.
+
+A very unpleasant discovery is that the native tests in the iOS simulator do
+accept environment variables, but need the specific prefix `SIMCTL_CHILD_` for
+them to be passed to the test process.
+
+I just don't think it's realistic to expect the people who want to set a timeout
+globally to jump through all these hoops. At the same time, it doesn't seem fair
+to only provide the configuration to the JVM, configuring which was implemented
+properly: the same reasoning is applicable to all tests.
+
+The good solution would be to fix this at the root: provide a cross-platform
+mechanism for exposing properties for code execution. Then we'd triumphantly
+add the property and leave it at that. Of course, we don't have the time to do
+quite that.
+
+I'm afraid we don't have a better choice than to implement it on the JVM first
+and only support the other platforms once we provide a proper cross-platform
+mechanism to do so. The big question then becomes: when we do introduce that
+mechanism, how will it work? If would be nice if it could be compatible with the
+solution we present right now for the JVM.
+
+So, I'll have to right now find the pros and cons of environment variables and
+system properties for the JVM to understand which of them will likely be chosen
+in the end.
+
+* System properties can be edited in runtime;
+  on the JVM, the environment variables can not.
+* System properties stay in the same JVM process; the environment variables get
+  naturally inherited.
+
+On Node JS:
+
+```sh
+$ x=y node -e 'console.log(process.env.x); process.env.x = "z"; console.log(process.env.x)'
+y
+z
+```
+
+On the POSIX-compatible Native, naturally, reassignment of environment variables
+is also possible.
+
+So, if we want to, we probably can assure that the configurable parameters can
+also be set during runtime. Is this a desirable thing? I'd say yes. This way,
+when you don't control how your program will be started, you can still place the
+configurable parameter assignments at the top of `main()` and have it work.
+
+Do we want the configuration parameters to get inherited in separate processes?
+I think we don't.
+
+It looks like, on the JVM, a system property is the way to go, whereas for the
+other platforms, we will need some creative thinking--but not today.
