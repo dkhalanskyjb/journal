@@ -7135,3 +7135,122 @@ maven-metadata-local.xml
 Now, the problem is, I have no idea what I've just done and how will it affect
 the project down the line. Let's push this to the CI and see if there are
 some obvious failures.
+
+Let's try to play with the system in the meantime to discover what I've done.
+
+```kotlin
+configurations.all {
+    if (outgoing.artifacts.isNotEmpty()) {
+        println("CONFIG $this (1): ${outgoing.artifacts.toList()}")
+        outgoing.artifacts.removeIf {
+            val dependencies = it.buildDependencies.getDependencies(null)
+            dependencies.contains(jar) || dependencies.contains(shadowJar)
+        }
+        if (name == "apiElements" || name == "runtimeElements") {
+            outgoing.artifact(shadowJarWithCorrectModuleInfo)
+        }
+        println("CONFIG $this (2): ${outgoing.artifacts.toList()}")
+    }
+}
+```
+
+```sh
+$ ./gradlew --info :kotlinx-coroutines-debug:clean :kotlinx-coroutines-debug:publishToMavenLocal | grep CONFIG
+CONFIG configuration ':kotlinx-coroutines-debug:apiElements' (1): [org.gradle.api.internal.artifacts.dsl.LazyPublishArtifact@28ef8fa4]
+CONFIG configuration ':kotlinx-coroutines-debug:apiElements' (2): [DecoratingPublishArtifact_Decorated kotlinx-coroutines-debug:jar:jar:]
+CONFIG configuration ':kotlinx-coroutines-debug:archives' (1): [org.gradle.api.internal.artifacts.dsl.LazyPublishArtifact@28ef8fa4]
+CONFIG configuration ':kotlinx-coroutines-debug:archives' (2): []
+CONFIG configuration ':kotlinx-coroutines-debug:mainSourceElements' (1): [DecoratingPublishArtifact_Decorated resources:directory::null, DecoratingPublishArtifact_Decorated java:directory::null, DecoratingPublishArtifact_Decorated src:directory::null]
+CONFIG configuration ':kotlinx-coroutines-debug:mainSourceElements' (2): [DecoratingPublishArtifact_Decorated resources:directory::null, DecoratingPublishArtifact_Decorated java:directory::null, DecoratingPublishArtifact_Decorated src:directory::null]
+CONFIG configuration ':kotlinx-coroutines-debug:runtimeElements' (1): [org.gradle.api.internal.artifacts.dsl.LazyPublishArtifact@28ef8fa4]
+CONFIG configuration ':kotlinx-coroutines-debug:runtimeElements' (2): [DecoratingPublishArtifact_Decorated kotlinx-coroutines-debug:jar:jar:]
+CONFIG configuration ':kotlinx-coroutines-debug:shadow' (1): [DecoratingPublishArtifact_Decorated kotlinx-coroutines-debug:jar:jar:all]
+CONFIG configuration ':kotlinx-coroutines-debug:shadow' (2): []
+CONFIG configuration ':kotlinx-coroutines-debug:shadowRuntimeElements' (1): [DecoratingPublishArtifact_Decorated kotlinx-coroutines-debug:jar:jar:all]
+CONFIG configuration ':kotlinx-coroutines-debug:shadowRuntimeElements' (2): []
+CONFIG configuration ':kotlinx-coroutines-debug:testResultsElementsForTest' (1): [DecoratingPublishArtifact_Decorated binary:directory::null]
+CONFIG configuration ':kotlinx-coroutines-debug:testResultsElementsForTest' (2): [DecoratingPublishArtifact_Decorated binary:directory::null]
+```
+
+Oh, this is actually pretty easy to wrap my head around.
+
+* For `apiElements` and `runtimeElements`, I replaced the `jar` with
+  my own archive.
+* For `archives`, I removed the `jar` without a suitable replacement.
+  Maybe I shouldn't.
+* `mainSourceElements` and `testResultsElementsForTest` are intact.
+* I removed the only output for the `shadow` and `shadowRuntimeElements`
+  configurations. Seems appropriate.
+
+I think I can formulate this in a clearer manner...
+
+But how? My idea is: remove all dependencies on the `shadowJar`, and replace all
+dependencies on `jar` with dependencies on `shadowJarWithCorrectModuleInfo`.
+How do I express this? If this were a mutable list, I'd be done immediately.
+Another option is something like this:
+
+```kotlin
+    val newArtifacts: List<PublishArtifact> = outgoing.artifacts.filter {
+        // we're not interested at all in the output of the shadowJar task; it's just an intermediate stage
+        !it.buildDependencies.getDependencies(null).contains(shadowJar)
+    }.map {
+        // if something wants a `jar` to be published, we want to publish the `shadowJarWithCorrectModuleInfo` instead
+        if (it.buildDependencies.getDependencies(null).contains(jar)) {
+            shadowJarWithCorrectModuleInfo as PublishArtifact
+        } else {
+            it
+        }
+    }
+    outgoing.artifacts.clear()
+    outgoing.artifacts.addAll(newArtifacts)
+
+```
+
+But as `shadowJarWithCorrectModuleInfo` is not a `PublishArtifact`, this won't
+work. It's not, right?
+
+```
+class org.gradle.api.internal.tasks.DefaultTaskContainer$TaskCreatingProvider_Decorated cannot be cast to class org.gradle.api.artifacts.PublishArtifact (org.gradle.api.internal.tasks.DefaultTaskContainer$TaskCreatingProvider_Decorated and org.gradle.api.artifacts.PublishArtifact are in unnamed module of loader org.gradle.internal.classloader.VisitableURLClassLoader @91161c7)
+```
+
+Yep.
+
+Attempt 2:
+
+```kotlin
+configurations.all {
+    if (outgoing.artifacts.isNotEmpty()) {
+        println("CONFIG $this (1): ${outgoing.artifacts.toList()}")
+        // we're not interested at all in the output of the shadowJar task; it's just an intermediate stage
+        outgoing.artifacts.removeIf { it.buildDependencies.getDependencies(null).contains(shadowJar) }
+        // if something wants a `jar` to be published, we want to publish the `shadowJarWithCorrectModuleInfo` instead
+        if (outgoing.artifacts.buildDependencies.getDependencies(null).contains(jar)) {
+            outgoing.artifacts.removeIf { it.buildDependencies.getDependencies(null).contains(jar) }
+            outgoing.artifact(shadowJarWithCorrectModuleInfo)
+        }
+        println("CONFIG $this (2): ${outgoing.artifacts.toList()}")
+    }
+}
+```
+
+produces
+
+```sh
+$  ./gradlew --info :kotlinx-coroutines-debug:clean :kotlinx-coroutines-debug:publishToMavenLocal | grep CONFIG
+CONFIG configuration ':kotlinx-coroutines-debug:apiElements' (1): [org.gradle.api.internal.artifacts.dsl.LazyPublishArtifact@72ea3f0]
+CONFIG configuration ':kotlinx-coroutines-debug:apiElements' (2): [DecoratingPublishArtifact_Decorated kotlinx-coroutines-debug:jar:jar:]
+CONFIG configuration ':kotlinx-coroutines-debug:archives' (1): [org.gradle.api.internal.artifacts.dsl.LazyPublishArtifact@72ea3f0]
+CONFIG configuration ':kotlinx-coroutines-debug:archives' (2): [DecoratingPublishArtifact_Decorated kotlinx-coroutines-debug:jar:jar:]
+CONFIG configuration ':kotlinx-coroutines-debug:mainSourceElements' (1): [DecoratingPublishArtifact_Decorated resources:directory::null, DecoratingPublishArtifact_Decorated java:directory::null, DecoratingPublishArtifact_Decorated src:directory::null]
+CONFIG configuration ':kotlinx-coroutines-debug:mainSourceElements' (2): [DecoratingPublishArtifact_Decorated resources:directory::null, DecoratingPublishArtifact_Decorated java:directory::null, DecoratingPublishArtifact_Decorated src:directory::null]
+CONFIG configuration ':kotlinx-coroutines-debug:runtimeElements' (1): [org.gradle.api.internal.artifacts.dsl.LazyPublishArtifact@72ea3f0]
+CONFIG configuration ':kotlinx-coroutines-debug:runtimeElements' (2): [DecoratingPublishArtifact_Decorated kotlinx-coroutines-debug:jar:jar:]
+CONFIG configuration ':kotlinx-coroutines-debug:shadow' (1): [DecoratingPublishArtifact_Decorated kotlinx-coroutines-debug:jar:jar:all]
+CONFIG configuration ':kotlinx-coroutines-debug:shadow' (2): []
+CONFIG configuration ':kotlinx-coroutines-debug:shadowRuntimeElements' (1): [DecoratingPublishArtifact_Decorated kotlinx-coroutines-debug:jar:jar:all]
+CONFIG configuration ':kotlinx-coroutines-debug:shadowRuntimeElements' (2): []
+CONFIG configuration ':kotlinx-coroutines-debug:testResultsElementsForTest' (1): [DecoratingPublishArtifact_Decorated binary:directory::null]
+CONFIG configuration ':kotlinx-coroutines-debug:testResultsElementsForTest' (2): [DecoratingPublishArtifact_Decorated binary:directory::null]
+```
+
+Yes, I think this is it. Now I'm fairly confident in this solution.
