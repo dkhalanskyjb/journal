@@ -6863,3 +6863,275 @@ I think we don't.
 
 It looks like, on the JVM, a system property is the way to go, whereas for the
 other platforms, we will need some creative thinking--but not today.
+
+
+Right now, let's finish at least the `kotlinx-coroutines-debug` fix.
+I'm fighting not only Gradle but also our own Gradle configs this time.
+
+I'm trying to untangle the tricky interplay of task creation. I see that
+`publish.gradle` contains a special case: for `kotlinx-coroutines-debug`,
+before `maven-publish` is activated, the shadow plugin is. I think it shouldn't
+be like this, so I remove that special case.
+
+Now, `build.gradle` fails, as there is special handling of the `shadowJar`
+task there. It's done so that it's known into which file to put the version file
+(I have no idea why it's needed, though).
+
+I could remove the `kotlinx-coroutines-debug` handling from there and just
+copy-paste it to `kotlinx-coroutines-debug/build.gradle`, but being a good
+citizen, instead I split that logic into the reusable part (which I place in
+`buildSrc`) and the dirty part (which I leave as is). The end result is that
+
+```groovy
+
+    def thisProject = it
+    if (thisProject.name in sourceless) {
+        return
+    }
+
+    def versionFileTask = thisProject.tasks.register("versionFileTask") {
+        def name = thisProject.name.replace("-", "_")
+        def versionFile = thisProject.layout.buildDirectory.file("${name}.version")
+        it.outputs.file(versionFile)
+
+        it.doLast {
+            versionFile.get().asFile.text = version.toString()
+        }
+    }
+
+    List<String> jarTasks
+    if (isMultiplatform(it)) {
+        jarTasks = ["jvmJar"]
+    } else if (it.name == "kotlinx-coroutines-debug") {
+        // We shadow debug module instead of just packaging it
+        jarTasks = ["shadowJar"]
+    } else {
+        jarTasks = ["jar"]
+    }
+
+    for (name in jarTasks) {
+        thisProject.tasks.named(name, Jar) {
+            it.dependsOn versionFileTask
+            it.from(versionFileTask) {
+                into("META-INF")
+            }
+        }
+    }
+```
+
+becomes
+
+```groovy
+    if (it.name !in sourceless) {
+        def jarTask
+        if (isMultiplatform(it)) {
+            jarTask = "jvmJar"
+        } else if (it.name == "kotlinx-coroutines-debug") {
+            return // we configure it in that module when the proper task is created
+        } else {
+            jarTask = "jar"
+        }
+        VersionFile.configure(it, it.tasks.named(jarTask, Jar).get())
+    }
+```
+
+with the help of
+
+```kotlin
+import org.gradle.api.*
+import org.gradle.api.tasks.bundling.*
+import org.gradle.kotlin.dsl.*
+
+object VersionFile {
+    fun configure(project: Project, jarTask: Jar) = with(project) {
+        val versionFileTask by tasks.register("versionFileTask") {
+            val name = project.name.replace('-', '_')
+            val versionFile = project.layout.buildDirectory.file("$name.version")
+            outputs.file(versionFile)
+            doLast {
+                versionFile.get().asFile.writeText(project.version.toString())
+            }
+        }
+        jarTask.dependsOn(versionFileTask)
+        jarTask.from(versionFileTask) {
+            into("META-INF")
+        }
+    }
+}
+```
+
+How nice it would be if this were so simple.
+
+Unfortunately...
+
+```
+No signature of method: static VersionFile.configure() is applicable for argument types: (org.gradle.api.internal.project.DefaultProject_Decorated, org.gradle.api.tasks.bundling.Jar_Decorated) values: [project ':kotlinx-coroutines-android', task ':kotlinx-coroutines-android:jar']
+  Possible solutions: configure(org.gradle.api.Project, org.gradle.api.tasks.bundling.Jar)
+```
+
+Ok, `org.gradle.api.tasks.bundling.Jar` inherits from `org.gradle.jvm.tasks.Jar`.
+Maybe I'm somehow requiring too specific a version in my script...
+
+Nope:
+
+```
+> No signature of method: static VersionFile.configure() is applicable for argument types: (org.gradle.api.internal.project.DefaultProject_Decorated, org.gradle.api.tasks.bundling.Jar_Decorated) values: [project ':kotlinx-coroutines-android', task ':kotlinx-coroutines-android:jar']
+  Possible solutions: configure(org.gradle.api.Project, org.gradle.jvm.tasks.Jar)
+```
+
+Ok. Screw `Jar`. I only need the copying facilities and this being a task.
+
+```
+> No signature of method: static VersionFile.configure() is applicable for argument types: (org.gradle.api.internal.project.DefaultProject_Decorated, org.gradle.api.tasks.bundling.Jar_Decorated) values: [project ':kotlinx-coroutines-android', task ':kotlinx-coroutines-android:jar']
+  Possible solutions: configure(org.gradle.api.Project, org.gradle.api.tasks.AbstractCopyTask)
+```
+
+Just what **is** being passed to me?
+
+Looking at how `Java9Modularity` is used, I see that there's a separate
+`gradle.kts` script that calls its functions. Maybe that's a solution.
+
+Looks like it is. Now, `build.gradle` only has
+`apply plugin: "version-file-conventions"`, but there's an extra `gradle.kts`
+file:
+
+```kotlin
+/* `kotlinx-coroutines-debug` configures `VersionFile` on its own when the corresponding task is created. */
+val invalidModules = listOf("kotlinx-coroutines-debug")
+
+configure(subprojects.filter {
+    !unpublished.contains(it.name) && !invalidModules.contains(it.name) && it.name !in sourceless
+}) {
+    val jarTask = tasks.withType(Jar::class.java).findByName(if (isMultiplatform) { "jvmJar" } else { "jar" })!!
+    VersionFile.configure(this, jarTask)
+}
+```
+
+Alas:
+
+```
+> No signature of method: static VersionFile.configure() is applicable for argument types: (org.gradle.api.internal.project.DefaultProject_Decorated, com.github.jengelman.gradle.plugins.shadow.tasks.Sh
+adowJar_Decorated) values: [project ':kotlinx-coroutines-debug', task ':kotlinx-coroutines-debug:shadowJar']
+  Possible solutions: configure(org.gradle.api.Project, org.gradle.api.tasks.AbstractCopyTask)
+```
+
+What now? Rewrite `kotlinx-coroutine-debug`'s `build.gradle` to `gradle.kts`?
+Ok, I'll try.
+
+How do we apply plugins in `gradle.kts`?
+
+```sh
+$ find . -name '*.kts' | xargs grep apply
+./buildSrc/src/main/kotlin/animalsniffer-conventions.gradle.kts:    apply(plugin = "ru.vyarus.animalsniffer")
+# and other output
+```
+
+...
+
+Ok, I think I migrated this. Let's give it a go...
+
+```
+* Where:                                                                                                                                                                                                 
+Build file '/home/dmitry.khalanskiy/IdeaProjects/kotlinx.coroutines/kotlinx-coroutines-bom/build.gradle' line: 25                                                                                        
+                                                                                                                                                                                                         
+* What went wrong:                                                                                                                                                                                       
+A problem occurred evaluating project ':kotlinx-coroutines-bom'.                                                                                                                                         
+> Could not create task ':kotlinx-coroutines-debug:shadowJarWithCorrectModuleInfo'.                                                                                                                      
+   > DefaultTaskContainer#register(String, Action) on task set cannot be executed in the current context.                                                                                                
+```
+
+WOW! What a terrible error message! My intuition suggested the cause, but sadly,
+even after fixing this issue, I still have no idea why it happened and why
+the issue arose in a completely different module in an arbitrary place.
+
+The reason was that I used effectively `otherTask.dependsOn(this)`. I fixed
+this by calling `otherTask.dependsOn(thisTask.get())` from outside the
+definition of `thisTask`. If not for my experience, this could have taken
+days!
+
+Nevermind, this can still take days.
+
+```
+Execution failed for task ':kotlinx-coroutines-debug:publishMavenPublicationToMavenLocal'.
+> Failed to publish publication 'maven' to repository 'mavenLocal'
+   > Artifact kotlinx-coroutines-debug-1.7.2-SNAPSHOT.jar wasn't produced by this build.
+```
+
+Oh, okay, but *what is this then*?
+
+```sh
+$ find kotlinx-coroutines-debug/ -name '*.jar'
+kotlinx-coroutines-debug/build/libs/kotlinx-coroutines-debug-1.7.2-SNAPSHOT-all.jar
+kotlinx-coroutines-debug/build/libs/kotlinx-coroutines-debug-1.7.2-SNAPSHOT-sources.jar
+kotlinx-coroutines-debug/build/libs/kotlinx-coroutines-debug-1.7.2-SNAPSHOT.jar
+kotlinx-coroutines-debug/build/libs/kotlinx-coroutines-debug-1.7.2-SNAPSHOT-javadoc.jar
+```
+
+Unless I'm sorely mistaken, **there is** a file with that name!
+
+```kotlin
+tasks.getByName("publishMavenPublicationToMavenLocal") {
+    dependsOn(shadowJarWithCorrectModuleInfo)
+}
+```
+
+also doesn't help. So, the file probably *does* get created, but for some
+reason that Gradle refuses to tell me, that's not enough.
+
+With `--info`, I don't see any new relevant information.
+
+The query `maven custom jar "wasn't produced by this build"` produces this
+seemingly relevant information:
+<https://github.com/spring-projects/spring-boot/issues/23797>.
+
+With this, the build passes:
+```kotlin
+
+configurations.configureEach {
+    outgoing.artifacts.removeIf { it.buildDependencies.getDependencies(null).contains(jar) }
+    outgoing.artifact(shadowJarWithCorrectModuleInfo)
+}
+```
+
+but I'm back at square one, only now with `build.gradle.kts`:
+
+```sh
+$ ls ~/.m2/repository/org/jetbrains/kotlinx/kotlinx-coroutines-debug/1.7.2-SNAPSHOT/
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT-all.jar
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT.jar
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT-javadoc.jar
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT.module
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT.pom
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT-sources.jar
+maven-metadata-local.xml
+```
+
+But this time, I think I know what to do... roughly.
+
+```sh
+configurations.all {
+    outgoing.artifacts.removeIf {
+        val dependencies = it.buildDependencies.getDependencies(null)
+        dependencies.contains(jar) || dependencies.contains(shadowJar)
+    }
+    if (name == "apiElements" || name == "runtimeElements") {
+        outgoing.artifact(shadowJarWithCorrectModuleInfo)
+    }
+}
+```
+
+Yes! This fixes my immediate problem:
+
+```sh
+$ ls ~/.m2/repository/org/jetbrains/kotlinx/kotlinx-coroutines-debug/1.7.2-SNAPSHOT/
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT.jar
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT-javadoc.jar
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT.module
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT.pom
+kotlinx-coroutines-debug-1.7.2-SNAPSHOT-sources.jar
+maven-metadata-local.xml
+```
+
+Now, the problem is, I have no idea what I've just done and how will it affect
+the project down the line. Let's push this to the CI and see if there are
+some obvious failures.
