@@ -7254,3 +7254,15 @@ CONFIG configuration ':kotlinx-coroutines-debug:testResultsElementsForTest' (2):
 ```
 
 Yes, I think this is it. Now I'm fairly confident in this solution.
+
+
+2023-11-23
+----------
+
+I'm doing meditative work today: transforming
+<https://github.com/Kotlin/kotlinx.coroutines/compare/develop...kotlin-community/k2/dev>
+into
+<https://github.com/Kotlin/kotlinx.coroutines/compare/develop...kotlin-community/k2/dev3>
+
+Throwing away the extra fluff, outdated workarounds, and generally, just keeping
+the required things with a clear reason to have them.
