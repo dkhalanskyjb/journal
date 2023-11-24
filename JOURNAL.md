@@ -7266,3 +7266,36 @@ into
 
 Throwing away the extra fluff, outdated workarounds, and generally, just keeping
 the required things with a clear reason to have them.
+
+2023-11-24
+----------
+
+Some magic of command-line interfaces. Would I be able to do this in the IDE?
+I don't think so.
+
+I looked at the commit
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3953/commits/91df241e7fd57c5595ca8ba2123311b96a606442>
+and thought: hey, we're adding a suppression even before the compiler has
+started complaining about this code. This will show up as a warning, so a
+comment is really in order so that we know not to remove the suppression
+accidentally.
+
+There are 38 lines here, and going through each one, looking in different files,
+is boring.
+
+So, here's what I did instead:
+
+```
+git checkout kotlin-community/k2/dev3
+git rebase -i origin/develop # choose `edit` for the commits that add suppressions
+git status | grep 'modified: ' | awk '{ print $2 }' |
+    xargs -n1 sed -i 's;\("INVISIBLE_MEMBER".*)\);\1 // do not remove the INVISIBLE_REFERENCE suppression: required in K2;'
+```
+
+Voila, done. Every mention of `INVISIBLE_MEMBER` is accompanied by the prompt
+not to remove the corresponding `INVISIBLE_REFERENCE`.
+
+
+The archangel of XBox 360 (I guess?) visited my pull request and blessed me with
+some knowledge of Gradle!
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3948> What a nice event.
