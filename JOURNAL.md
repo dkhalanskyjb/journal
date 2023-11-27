@@ -7299,3 +7299,201 @@ not to remove the corresponding `INVISIBLE_REFERENCE`.
 The archangel of XBox 360 (I guess?) visited my pull request and blessed me with
 some knowledge of Gradle!
 <https://github.com/Kotlin/kotlinx.coroutines/pull/3948> What a nice event.
+
+This was quite a demanding week. I just looked at the book called
+"Code that fits in your head," and my tired brain transformed it at a glance
+to "Cool thief that stole candy."
+If we take the Levenstein distance between what is written and what I'm reading
+as the measure of mental tiredness, then clearly, I'm tired.
+
+Though, of course, the Levenstein difference is a very bad predictor of which
+words get mixed up, especially in English.
+
+2023-11-27
+----------
+
+Today, I have two goals:
+
+* Finish a PR <https://github.com/Kotlin/kotlinx.coroutines/pull/3945> that
+  restores the 60-second timeout to `runTest`.
+* See if we can cheaply implement direct access to the timezone databases on
+  Apple's devices.
+
+Let's mix the two together. The 60-second timeout one seems like simple work:
+after thinking about it for a while, I think that the cross-platform mechanism
+of environment configuration will have to rely on system properties on the JVM,
+so I'll just introduce this parameter as a JVM-only system property for now due
+to time constraints and leave a big TODO to drive the introduction of system
+properties. So, I know exactly what to implement, I just need to do it during
+my downtime.
+
+The cheap access to Apple's timezone databases is much trickier. The lead we
+have is
+<https://github.com/HowardHinnant/date/blob/cc4685a21e4a4fdae707ad1233c61bbaff241f93/src/tz.cpp#L475-L481>
+By the way, to get this link, I pressed the `y` button on this page:
+<https://github.com/HowardHinnant/date/blob/master/src/tz.cpp#L475-L481>.
+A nice feature of Github!
+
+If it's possible to avoid using the Foundation API, it would be great. That
+API doesn't provide any convenient access to the timezone database.
+Maybe iterating over every `nextDaylightSavingTimeTransition` from 1 AD and
+calling `secondsFromGMT` for each moment would work, but
+
+* It doesn't give us any way to learn the recurring rules.
+* It's very inefficient.
+
+Another scary option is to use
+<https://developer.apple.com/documentation/foundation/nstimezone/1387213-data>.
+It's only present for `NSTimeZone` and not `TimeZone`. Internally, it turns out,
+this is just a normal timezone database file, like the ones you'd encounter in
+`/usr/share/zoneinfo/`.
+
+Relying on unspecified behavior on Apple's devices is even more unreliable than
+relying on the specified behavior, and probably any iOS developer will confirm
+that even the specified behavior is not reliable. I myself encountered this a
+lot when researching the datetime formatting. Accessing and parsing `data` may
+work for a while, but nothing says that it will continue to do so, especially
+given that the new API doesn't even include it.
+
+Hoping that the timezone database on the filesystem is always there and works
+properly seems like our best bet. Maybe with a fallback to the suboptimal
+procedure of `NSTimeZone` querying.
+
+I received a MacBook and and iPhone from the IT department to test all these
+approaches. The reason I need a real iPhone is that the iOS simulator seemingly
+has access to the parts of the filesystem that are not present on an actual
+iPhone: not so much qemu-style emulation as Wine-style non-emulation, I think.
+
+And the reason I need a MacBook is that, naturally, not just anyone can build
+and an application for an iPhone and upload it. You even need to sign a bunch
+of agreements to get access to the tooling to do so on a MacBook.
+
+In any case, I've already uploaded my first iOS application to the iPhone and
+am ready to experiment.
+
+I rewrote the Apple implementation to use the `/var/db/timezone` path to obtain
+the timezone database, but the tests started to fail even on MacOS, without
+involving the iPhone.
+
+Of course, diagnozing this is not so easy.
+The stacktraces from Kotlin/Native during testing don't include the exceptions
+that are the cause, so I have no way to know what fails if the failure gets
+wrapped in a `try`-`catch`, and we utilize this approach constantly.
+Without the stacktrace, just printing the error message doesn't get me anywhere,
+really.
+
+```
+Failed requirement.
+```
+
+I guess I need to go through the codebase and replace all `require` with ones
+that have a more helpful error message. It would be very unpleasant to receive
+a bug report with `Failed requirement` as the only lead.
+
+The good news is, only two timezones are affected!
+* `Africa/Casablanca`,
+* and `Africa/El_Aaiun`.
+
+The other ones work fine on MacOS.
+
+I separate initialization for `Africa/Casablanca` to a separate test...
+
+Eh?
+
+The problem is during parsing the POSIX rulestring `XXX-2<+01>-1,0/0,J365/23`:
+`0/0` is parsed as the date "day 0, hour 0." I *thought* this was illegal and
+only days 1-366 are permitted. Apparently not?
+
+Yep, I was wrong:
+
+> The zero-based Julian day (0 <= n <= 365). Leap days shall be counted, and it
+> is possible to refer to February 29.
+
+Will need to fix this, for sure, but what does this rule even mean?
+
+Let's take something we understand well: `Europe/Berlin`. The rule is
+`CET-1CEST,M3.5.0,M10.5.0/3`. It means that the usual offset is `+1`, and in
+summer, it's `+2`. The change from `+1` to `+2` happens in late March; the
+switch back is in late October.
+
+```
+$ zdump -v | grep 2023
+/usr/share/zoneinfo/Europe/Berlin  Sun Mar 26 00:59:59 2023 UT = Sun Mar 26 01:59:59 2023 CET isdst=0 gmtoff=3600
+/usr/share/zoneinfo/Europe/Berlin  Sun Mar 26 01:00:00 2023 UT = Sun Mar 26 03:00:00 2023 CEST isdst=1 gmtoff=7200
+/usr/share/zoneinfo/Europe/Berlin  Sun Oct 29 00:59:59 2023 UT = Sun Oct 29 02:59:59 2023 CEST isdst=1 gmtoff=7200
+/usr/share/zoneinfo/Europe/Berlin  Sun Oct 29 01:00:00 2023 UT = Sun Oct 29 02:00:00 2023 CET isdst=0 gmtoff=3600
+```
+
+The moment `2023-03-26T02:00+01` equals `2023-03-26T03:00+02`.
+
+Now for the strange rule.
+
+The daylight saving time (offset `01`) starts at midnight from Dec 31st to
+Jan 1st and continues until Dec 31st, 23:00, at which point it goes back to the
+usual offset `02`.
+
+`2023-12-31T23:00+01` equals `2023-01-01T00:00+02`; however, according to the
+rules of the following year, this equals `2023-12-31T23:00+01` once again, after
+which, however, no further transitions happen.
+
+In effect, this simply means "`+01`, always," written in a really strange way.
+
+Do we even properly handle such a rule? Won't we hang infinitely when trying to
+figure out what's going on?
+
+Very funny: even the `zdump -v` command fails with such an input!
+Though for all finite years, it does recognize properly that no transition
+actually happens.
+
+```
+$ zdump -v /var/db/timezone/zoneinfo/Africa/Casablanca | tail -n5
+/var/db/timezone/zoneinfo/Africa/Casablanca  Wed Dec 31 22:59:59 2147485547 UT = Wed Dec 31 23:59:59 2147485547 +01 isdst=1 gmtoff=3600
+/var/db/timezone/zoneinfo/Africa/Casablanca  Wed Dec 31 23:00:00 2147485547 UT = 67768036191673200 (localtime failed)
+/var/db/timezone/zoneinfo/Africa/Casablanca  Wed Dec 31 23:59:59 2147485547 UT = 67768036191676799 (localtime failed)
+/var/db/timezone/zoneinfo/Africa/Casablanca  67768036191676800 (gmtime failed) = 67768036191676800 (localtime failed)
+/var/db/timezone/zoneinfo/Africa/Casablanca  9223372036854775807 (gmtime failed) = 9223372036854775807 (localtime failed)
+```
+
+No, I don't think we'll hang, but it's worth encoding into a test anyway.
+In any case, when queried about whether Dec 31st, 23:30 is in a gap, overlap,
+or a regular offset, our system will return nonsense: likely that it's in a gap.
+I'm not sure it's worth investing time into, as this rule is clearly malformed.
+
+Luckily, that was it: now the `TimeZoneRulesCompleteTest` passes on MacOS as
+well, which means that of the transitions that `zdump` recognizes, we handle
+each one correctly.
+
+Now for the iOS. I'm publishing my changes to the datetime library locally
+via `publishToMavenLocal` and link against them in the XCode project.
+
+Hey, wait, the tests *do* fail, though not for MacOS but for the
+iPhone Simulator. It's a `NullPointerException` when constructing an
+`NSTimeZone` from a `TimeZone`. Interesting. The conversion passes for several
+time zones before failing for `America/Ciudad_Juarez`. This means that somehow,
+there is a file for this timezone on the iOS simulator but no such timezone in
+the Foundation framework.
+
+I'm wondering if the `date` library using `/usr/share/zoneinfo/` instead of
+`/var/db/timezone/zoneinfo` on the iOS Simulator is intentional and fixes this
+somehow.
+
+My code passes in the simulator but fails on the real device because it can't
+find the system timezone...
+
+Well, of course it can't: it's not going through the normal channels, it's
+directly accessing the filesystem to learn the name of the current time zone,
+but even the `date` library doesn't do it this way.
+
+Hey, wow, after fixing this, it worked!
+
+Testing this further, I see that on the iOS Simulator, the only timezone that
+is available in `TimeZone.availableZoneIds` but can't be converted to
+`NSTimeZone` is `America/Ciudad_Juarez`; on the real device, there are no such
+timezones. Likewise, there are no such timezones on MacOS.
+
+I'll probably just need to reorganize the code so that it uses exactly the
+timezones available on the system. On Darwin, it would be the ones provided by
+<https://developer.apple.com/documentation/foundation/nstimezone/1387223-knowntimezonenames>,
+and on Linux, we need to traverse the `/usr/share/zoneinfo/` directory as usual.
+
+
