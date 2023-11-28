@@ -7496,4 +7496,153 @@ timezones available on the system. On Darwin, it would be the ones provided by
 <https://developer.apple.com/documentation/foundation/nstimezone/1387223-knowntimezonenames>,
 and on Linux, we need to traverse the `/usr/share/zoneinfo/` directory as usual.
 
+2023-11-28
+----------
 
+Made another review round on the Wasm support PR in datetime:
+<https://github.com/Kotlin/kotlinx-datetime/pull/315>.
+Sadly, the architectural approach I was rooting for was not met with support, so
+now unrelated code has to change because of this PR. Well, you can't always have
+what you want, so I manually checked every `try` block in the shared module, and
+it's fine. Here's how I did it:
+
+```sh
+git grep -A3 try core/jsAndWasmShared/
+```
+
+I've adapted the coroutines codebase a bit to the new compiler: for some reason,
+tests started failing on Kotlin 2.0 with the error that a call to `println` was
+detected. Turns out, the reason was that in the JVM source-set, we had a special
+`println` function in the base class that all tests inherit from, and this
+`println` is exempt from our wildcard check of "no `println` calls happen in
+the code." Makes sense: `println` in a test is more or less harmless. However,
+now, the rules of resolution changed: first, the common source-set without the
+overloaded `println` was compiled, and only later, when the `println` is already
+resolved to `kotlin.io.println`, does the JVM-specific code gets compiled.
+
+The fix is easy: <https://github.com/Kotlin/kotlinx.coroutines/pull/3955>
+
+Now I'm looking into how to improve
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3948>. I was told by
+@shanshin that I'm full of sin and I must never do `configurations.all`.
+He also advised me to try and manually edit the shadow jar and add a file to
+it after the `shadowJar` task is done with it.
+
+Let's try doing that.
+
+The root of the fix is going to be this:
+
+```kotlin
+configurations {
+    // shadowJar is already part of the `shadowRuntimeElements` and `shadowApiElements`, but it's not enough.
+    artifacts {
+        add("apiElements", shadowJar)
+        add("runtimeElements", shadowJar)
+    }
+}
+```
+
+Naively, this causes this error:
+
+```
+   > Artifact kotlinx-coroutines-debug-1.7.2-SNAPSHOT.jar wasn't produced by this build.
+```
+
+The `jar` task is still set to publish its files, and Gradle complains that
+`jar` produced no files.
+
+However, by setting some extra variable called `archiveClassifier.convention`
+to `null`, I seemingly trick Gradle into thinking that the jar file that does
+get published is suitable for every purpose. I won't question this, I'm just
+glad it works.
+
+Ok, how do I add a new file to an existing zip-file?
+<https://stackoverflow.com/questions/2223434/appending-files-to-a-zip-file-with-java>
+looks promising. I only need to find out what my archive is called.
+
+After a while, I think I got it.
+
+Now, the only thing missing from my side for the release of coroutines,
+it seems, is <https://github.com/Kotlin/kotlinx.coroutines/pull/3924>. Aside
+from that, I also have to provide a roadmap for the datetime project by the end
+of the week and keep reviewing the wasm pull request in datetime as needed.
+Seems fairly straightforward. I think I'd rather finish PR #3924 now.
+
+The big problem I'm having with this PR is that on Android, the tests that work
+just fine for the `Main` dispatchers of other platforms tend to hang. Luckily,
+being an author of a virtual time mplementation, I can make a pretty educated
+guess as to what's going on: in the test environment, the clock is substituted
+with a controllable one and I need to manipulate it somehow.
+
+A very telling example:
+
+```kotlin
+@Test
+fun hangingTest() = runBlocking {
+    withContext(Dispatchers.Default) {
+        withContext(Dispatchers.Main) {
+        }
+    }
+}
+```
+
+This just hangs. Why? Well, clearly, the main dispatcher enqueues its task, but
+there is no one to run it.
+
+Looking at the surrounding tests, I cook up this solution:
+
+```kotlin
+@Test
+fun nonHangingTest() = runBlocking {
+    val testBody = launch {
+        withContext(Dispatchers.Default) {
+            withContext(Dispatchers.Main) {
+            }
+        }
+    }
+    val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+    while (testBody.isActive) {
+        delay(maxOf(mainLooper.nextScheduledTaskTime.toKotlinDuration(), 1.milliseconds))
+        mainLooper.runOneTask()
+    }
+}
+```
+
+This works! Though it has a bug: if we are waiting for 10 seconds and a new task
+arrives that's supposed to execute in 5 seconds, we'll wait for the whole 10
+seconds first. This is a no-go for tests like
+`withTimeout(long_time) { delay(short_time) }`: we'll first notice that there's
+a task scheduled for `long_time` and wait for that long.
+
+No, a better approach is to do something like this:
+
+```kotlin
+while (testBody.isActive) {
+    delay(10.milliseconds)
+    mainLooper.idleFor(10, TimeUnit.MILLISECONDS)
+}
+```
+
+This way, every 10 milliseconds (a small amount of time), the real clock and
+the virtual clock will get synchronized. This essentially gets rid of the
+virtual time altogether, but there doesn't seem to be a downside to it.
+
+I edited the tests, and now they work for essentially every implementation
+except Apple. I don't know if if works on Apple, as I usually don't touch the
+MacOS that was issued to me unless I really have to. I guess I have to this
+time, as the CI on Mac is not enabled for day-to-day builds of coroutines.
+
+Cloning the coroutines repo and trying to run it, I get...
+
+`Unsupported class file major version 63`.
+
+Cool.
+
+You know what they say about the JVM ecosystem? "You just install Java, and it
+will work." Not for me. Maybe compared to JS, this is true, but even on Haskell,
+notorious for its constant breakage, the tooling is not so ridiculous as to
+have something new errors in store every day.
+
+Setting `JAVA_HOME` to JDK 17 (because the internet said so)
+as opposed to 19 helped. Gradle started successfully and began to download the
+Kotlin compiler. Though I'm sure it has more tricks up its sleeve.
