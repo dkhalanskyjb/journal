@@ -8177,3 +8177,646 @@ then cross out the ones we don't need.
 <https://docs.github.com/en/issues/planning-and-tracking-with-projects/managing-items-in-your-project/adding-items-to-your-project#adding-multiple-issues-or-pull-requests-from-a-repository>
 
 Oh, you're supposed to do this from inside the repo.
+
+2023-11-30
+----------
+
+<https://github.com/Kotlin/kotlinx-datetime/pull/315> finally has the full list
+of the JS API endpoints that can throw, and I'm going through each API endpoint
+one after another to make sure it won't throw an exception.
+
+```kotlin
+public actual open class JodaTimeTemporalUnit(open val value: TemporalUnit)
+public actual open class JodaTimeTemporalAmount
+public actual open class JodaTimeChronoLocalDate(override val value: ChronoLocalDate) : JodaTimeTemporal(value)
+public actual open class JodaTimeTemporalAccessor(open val value: TemporalAccessor)
+public actual open class JodaTimeChronoLocalDateTime(override val value: ChronoLocalDateTime) : JodaTimeTemporal(value) {
+    actual open fun toInstant(offset: JodaTimeZoneOffset): JodaTimeInstant = JodaTimeInstant(value.toInstant(offset.value))
+}
+public actual open class JodaTimeChronoZonedDateTime(override val value: ChronoZonedDateTime) : JodaTimeTemporal(value) {
+    actual fun toInstant(): JodaTimeInstant = JodaTimeInstant(value.toInstant())
+}
+```
+
+The range of `Instant` is one year wider than that of `LocalDateTime`, so it's
+a valid transformation.
+
+```kotlin
+public actual open class JodaTimeTemporal(override val value: Temporal) : JodaTimeTemporalAccessor(value) {
+    actual open fun until(endTemporal: JodaTimeTemporal, unit: JodaTimeTemporalUnit): Double =
+        value.until(endTemporal.value, unit.value)
+}
+```
+
+`until` is an abstract method, used in `LocalDate` and `ZonedDateTime`.
+Let's look at <https://github.com/js-joda/js-joda/tree/c635147087af60f35b964ba3f327715436e4ba05/packages/core/src>,
+`LocalDate.js` and `ZonedDateTime.js`.
+
+```javascript
+daysUntil(end) {
+    return end.toEpochDay() - this.toEpochDay();  // no overflow
+}
+```
+
+Ok, no overflow it is then.
+
+In `ZonedDateTime`, though...
+
+```javascript
+until(endExclusive, unit) {
+    let end = ZonedDateTime.from(endExclusive);
+    if (unit instanceof ChronoUnit) {
+        end = end.withZoneSameInstant(this._zone);
+        if (unit.isDateBased()) {
+            return this._dateTime.until(end._dateTime, unit);
+        } else {
+            const difference = this._offset.totalSeconds() - end._offset.totalSeconds();
+            const adjustedEnd = end._dateTime.plusSeconds(difference);
+            return this._dateTime.until(adjustedEnd, unit);
+        }
+    }
+    return unit.between(this, end);
+}
+```
+
+There's a tiny problem: `plusSeconds`. If one `ZonedDateTime` is at the limits
+of what `LocalDateTime` can represent, adjusting it to have the same offset as
+the original `ZonedDateTime` will lead to an overflow.
+
+Luckily, this doesn't happen in our codebase, so I just drop a comment.
+
+Then, `ZonedDateTime` delegates to `LocalDateTime`'s `until` implementation.
+Let's look at it...
+
+There are calls to `endDate.minusDays` and `endDate.plusDays`, but only in the
+case when it's known that another date is even further from the reference date,
+so this can't overflow. There's a lot of `safeMultiply` and `safeAdd`, but they
+only receive non-zero values when the `LocalDateTime` values are far apart and
+time-based difference is queried, whereas we always make sure that the
+time-based difference is only calculated when there isn't a whole day between
+the date-times. So, we're all clear.
+
+```kotlin
+public actual open class JodaTimeChronoUnit(override val value: ChronoUnit) : JodaTimeTemporalUnit(value) {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeChronoUnit && value === other.value)
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+
+    actual companion object {
+        actual var NANOS: JodaTimeChronoUnit = JodaTimeChronoUnit(ChronoUnit.NANOS)
+        actual var DAYS: JodaTimeChronoUnit = JodaTimeChronoUnit(ChronoUnit.DAYS)
+        actual var MONTHS: JodaTimeChronoUnit = JodaTimeChronoUnit(ChronoUnit.MONTHS)
+        actual var YEARS: JodaTimeChronoUnit = JodaTimeChronoUnit(ChronoUnit.YEARS)
+    }
+}
+```
+
+Nothing can throw here, I hope.
+
+```kotlin
+public actual open class JodaTimeClock(val value: Clock)  {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeClock && value.equals(other.value))
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+    actual fun instant(): JodaTimeInstant = JodaTimeInstant(value.instant())
+
+    actual companion object {
+        actual fun systemUTC(): JodaTimeClock = JodaTimeClock(Clock.systemUTC())
+    }
+}
+```
+
+Looking at the code, constructing `Clock.systemUTC()` is trivial, and
+`instant()`... Well, it can throw if the value of `Date().getTime()` is
+ridiculously large. I won't risk setting my computer to such a large time to
+experiment, though, as I'm not sure I'll be able to turn it back on without
+some very heavy tinkering. Let's just assume that whoever has their clock so
+far off is ready for the consequences.
+
+```kotlin
+public actual open class JodaTimeDuration(val value: Duration) : JodaTimeTemporalAmount() {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeDuration && value.equals(other.value))
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+    actual fun nano(): Double = value.nano()
+    actual fun seconds(): Double = value.seconds()
+
+    actual companion object {
+        actual fun between(startInclusive: JodaTimeTemporal, endExclusive: JodaTimeTemporal): JodaTimeDuration =
+            JodaTimeDuration(Duration.between(startInclusive.value, endExclusive.value))
+    }
+}
+```
+
+This `between` bothers me. It's only used in
+```kotlin
+public actual operator fun minus(other: Instant): Duration {
+    val diff = jtDuration.between(other.value, this.value)
+    return diff.seconds().seconds + diff.nano().nanoseconds
+}
+```
+
+Its implementation is:
+
+```kotlin
+static between(startInclusive, endExclusive) {
+    requireNonNull(startInclusive, 'startInclusive');
+    requireNonNull(endExclusive, 'endExclusive');
+    let secs = startInclusive.until(endExclusive, ChronoUnit.SECONDS);
+    let nanos = 0;
+        if (startInclusive.isSupported(ChronoField.NANO_OF_SECOND) && endExclusive.isSupported(ChronoField.NANO_OF_SECOND)) {
+        try {
+                const startNos = startInclusive.getLong(ChronoField.NANO_OF_SECOND);
+                nanos = endExclusive.getLong(ChronoField.NANO_OF_SECOND) - startNos;
+            if (secs > 0 && nanos < 0) {
+                nanos += LocalTime.NANOS_PER_SECOND;
+            } else if (secs < 0 && nanos > 0) {
+                nanos -= LocalTime.NANOS_PER_SECOND;
+            } else if (secs === 0 && nanos !== 0) {
+                // two possible meanings for result, so recalculate secs
+                    const adjustedEnd = endExclusive.with(ChronoField.NANO_OF_SECOND, startNos);
+                    secs = startInclusive.until(adjustedEnd, ChronoUnit.SECONDS);
+            }
+        } catch (e) {
+            // ignore and only use seconds
+        }
+    }
+    return this.ofSeconds(secs, nanos);
+}
+```
+
+If something fails when equiring nanoseconds, they are ignored. I won't bother
+to check what *can* happen: I'm only interested in exceptions flying out.
+
+`ofSeconds` is:
+
+```kotlin
+static ofSeconds(seconds, nanoAdjustment = 0) {
+    const secs = MathUtil.safeAdd(seconds, MathUtil.floorDiv(nanoAdjustment, LocalTime.NANOS_PER_SECOND));
+    const nos = MathUtil.floorMod(nanoAdjustment, LocalTime.NANOS_PER_SECOND);
+    return Duration._create(secs, nos);
+}
+```
+
+and crucially,
+
+```kotlin
+constructor(seconds, nanos) {
+    super();
+    this._seconds = MathUtil.safeToInt(seconds);
+    this._nanos = MathUtil.safeToInt(nanos);
+}
+```
+
+I'm copying so much code that I'm starting to worry about licensing. The license
+is BSD. Well, rules are rules, I have to include it:
+
+```
+BSD License
+
+For js-joda software
+
+Copyright (c) 2016, Philipp Thürwächter & Pattrick Hüper
+ 
+All rights reserved.
+ 
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+ 
+ * Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+ 
+ * Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+ 
+ * Neither the name of js-joda nor the names of its contributors
+   may be used to endorse or promote products derived from this software
+   without specific prior written permission.
+ 
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+You got all this? Good. Let's proceed.
+
+Turns out, at most `Int.MAX_VALUE` seconds can be stored in this `Duration`, or
+a crash will occur. This is clearly achievable, right?
+
+```javascript
+    Instant.MIN_SECONDS = -31619119219200; // -1000000-01-01T00:00:00Z          
+    Instant.MAX_SECONDS = 31494816403199; // +1000000-12-31T23:59:59.999999999Z 
+```
+
+Even just `Instant.MAX_SECONDS` is larger than an `Int`! Clearly a bug on our
+hands, right? Let's double-check.
+
+```kotlin
+@Test
+fun subtractInstants() {
+    val max = Instant.fromEpochSeconds(31494816403199L)
+    val min = Instant.fromEpochSeconds(-31619119219200L)
+    assertEquals(max.epochSeconds - min.epochSeconds, (max - min).inWholeSeconds)
+}
+```
+
+No, this passes just fine, and I checked, the `assertEquals` *does* execute.
+
+What if... Oh.
+
+```javascript
+static verifyInt(value){
+    if (value == null) {
+        throw new ArithmeticException(`Invalid value: '${value}', using null or undefined as argument`);
+    }
+    if (isNaN(value)) {
+        throw new ArithmeticException('Invalid int value, using NaN as argument');
+    }
+    if ((value % 1) !== 0) {
+        throw new ArithmeticException(`Invalid value: '${value}' is a float`);
+    }
+    if (value > MAX_SAFE_INTEGER || value < MIN_SAFE_INTEGER) {
+        throw new ArithmeticException(`Calculation overflows an int: ${value}`);
+    }
+}
+
+export const MAX_SAFE_INTEGER = 9007199254740991;
+export const MIN_SAFE_INTEGER = -9007199254740991;
+```
+
+So, it not an `Int` but a JS-`Int`.
+
+```
+31494816403199
+9007199254740991
+```
+
+Look at these two numbers. The one above is so tiny that I could subtract and
+add them all day, and the bottom one would never be reached.
+
+Clearly, this is safe. Moving on.
+
+```kotlin
+public actual open class JodaTimeInstant(override val value: Instant) : JodaTimeTemporal(value) {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeInstant && value.equals(other.value))
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+    actual fun atZone(zone: JodaTimeZoneId): JodaTimeZonedDateTime =
+        JodaTimeZonedDateTime(jsTry { value.atZone(zone.value) })
+    actual fun compareTo(otherInstant: JodaTimeInstant): Int = value.compareTo(otherInstant.value)
+    actual fun epochSecond(): Double = value.epochSecond()
+    actual fun nano(): Double = value.nano()
+
+    actual companion object {
+        actual var MIN: JodaTimeInstant = JodaTimeInstant(Instant.MIN)
+        actual var MAX: JodaTimeInstant = JodaTimeInstant(Instant.MAX)
+        actual fun ofEpochSecond(epochSecond: Double, nanoAdjustment: Int): JodaTimeInstant =
+            JodaTimeInstant(jsTry { Instant.ofEpochSecond(epochSecond, nanoAdjustment) })
+    }
+}
+```
+
+Everything suspicious is properly guarded.
+
+```kotlin
+public actual open class JodaTimeLocalDate(override val value: LocalDate) : JodaTimeChronoLocalDate(value) {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeLocalDate && value.equals(other.value))
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+    actual fun atStartOfDay(zone: JodaTimeZoneId): JodaTimeZonedDateTime =
+        JodaTimeZonedDateTime(value.atStartOfDay(zone.value))
+    actual fun compareTo(other: JodaTimeLocalDate): Int = value.compareTo(other.value)
+    actual fun dayOfMonth(): Int = value.dayOfMonth()
+    actual fun dayOfWeek(): JodaTimeDayOfWeek = JodaTimeDayOfWeek(value.dayOfWeek())
+    actual fun dayOfYear(): Int = value.dayOfYear()
+    actual fun month(): JodaTimeMonth = JodaTimeMonth(value.month())
+    actual fun monthValue(): Int = value.monthValue()
+    actual fun plusDays(daysToAdd: Int): JodaTimeLocalDate =
+        JodaTimeLocalDate(jsTry { value.plusDays(daysToAdd) })
+    actual fun plusMonths(monthsToAdd: Int): JodaTimeLocalDate =
+        JodaTimeLocalDate(jsTry { value.plusMonths(monthsToAdd) })
+    actual fun toEpochDay(): Double = value.toEpochDay()
+    actual fun year(): Int = value.year()
+
+    actual companion object {
+        actual var MIN: JodaTimeLocalDate = JodaTimeLocalDate(LocalDate.MIN)
+        actual var MAX: JodaTimeLocalDate = JodaTimeLocalDate(LocalDate.MAX)
+        actual fun of(year: Int, month: Int, dayOfMonth: Int): JodaTimeLocalDate =
+            JodaTimeLocalDate(jsTry { LocalDate.of(year, month, dayOfMonth) })
+        actual fun ofEpochDay(epochDay: Int):  JodaTimeLocalDate =
+            JodaTimeLocalDate(jsTry { LocalDate.ofEpochDay(epochDay) })
+        actual fun parse(text: String): JodaTimeLocalDate =
+            JodaTimeLocalDate(jsTry { LocalDate.parse(text) })
+    }
+}
+```
+
+Can `atStartOfDay` fail?.. Not realistically, no. Looking at the JsJoda code,
+I also don't find anything suspicious. Except maybe if the timezone handling in
+JsJoda is broken and passing too huge a moment causes it to fail. But we have
+tests for that.
+
+Other than that, everything's properly guarded.
+
+```kotlin
+public actual open class JodaTimeLocalDateTime(override val value: LocalDateTime) : JodaTimeChronoLocalDateTime(value) {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeLocalDateTime && value.equals(other.value))
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+
+    actual fun atZone(zone: JodaTimeZoneId): JodaTimeZonedDateTime =
+        JodaTimeZonedDateTime(value.atZone(zone.value))
+    actual fun compareTo(other: JodaTimeLocalDateTime): Int = value.compareTo(other.value)
+    actual fun dayOfMonth(): Int = value.dayOfMonth()
+    actual fun dayOfWeek(): JodaTimeDayOfWeek = JodaTimeDayOfWeek(value.dayOfWeek())
+    actual fun dayOfYear(): Int = value.dayOfYear()
+    actual fun hour(): Int = value.hour()
+    actual fun minute(): Int = value.minute()
+    actual fun month(): JodaTimeMonth = JodaTimeMonth(value.month())
+    actual fun monthValue(): Int = value.monthValue()
+    actual fun nano(): Double = value.nano()
+    actual fun second(): Int = value.second()
+    actual fun toLocalDate(): JodaTimeLocalDate = JodaTimeLocalDate(value.toLocalDate())
+    actual fun toLocalTime(): JodaTimeLocalTime = JodaTimeLocalTime(value.toLocalTime())
+    actual fun year(): Int = value.year()
+
+    actual companion object {
+        actual var MIN: JodaTimeLocalDateTime = JodaTimeLocalDateTime(LocalDateTime.MIN)
+        actual var MAX: JodaTimeLocalDateTime = JodaTimeLocalDateTime(LocalDateTime.MAX)
+        actual fun of(date: JodaTimeLocalDate, time: JodaTimeLocalTime): JodaTimeLocalDateTime =
+            JodaTimeLocalDateTime(jsTry { LocalDateTime.of(date.value, time.value) })
+        actual fun of(year: Int, month: Int, dayOfMonth: Int, hour: Int, minute: Int, second: Int, nanoSecond: Int): JodaTimeLocalDateTime =
+            JodaTimeLocalDateTime(jsTry { LocalDateTime.of(year, month, dayOfMonth, hour, minute, second, nanoSecond) })
+        actual fun ofInstant(instant: JodaTimeInstant, zoneId: JodaTimeZoneId): JodaTimeLocalDateTime =
+            JodaTimeLocalDateTime(jsTry { LocalDateTime.ofInstant(instant.value, zoneId.value) })
+        actual fun parse(text: String): JodaTimeLocalDateTime =
+            JodaTimeLocalDateTime(jsTry { LocalDateTime.parse(text) })
+    }
+}
+```
+
+Oh, this one's huge. Everythin in the companion object properly has the
+guardrails (and for each case, there doesn't seem to be a way around it).
+
+For accessors, no special actions are needed.
+
+`atZone` looks suspicious. Can `ZonedDateTime` construction fail?..
+In theory, it can. If given a `LocalDateTime.MAX` and `LocalDateTime.MAX` is in
+a timezone gap, it will be adjusted to something farther away, throwing an
+exception. Is `+999999999-12-31T23:59:59.999999999` ever in a gap?
+
+**Well**, if you're on Apple's hardware and access the `Africa/Casablanca`
+timezone with the default zone rules, then yes, as our regular readers know!
+
+Though it looks like JsJoda provides a fixed set of transitions, if we browse
+the `MomentZoneRules.js` file. So, even theoretically, it doesn't seem like
+this could cause an issue.
+
+... Ok, let's check it.
+
+```kotlin
+    @Test
+    fun xxx() {
+        val zone = TimeZone.of("Europe/Berlin")
+        for (year in 2020..100_000) {
+            val standardTime = LocalDateTime(year, 1, 1, 0, 0, 0, 0)
+            val summerTime = LocalDateTime(year, 7, 1, 0, 0, 0, 0)
+            val standardOffset = zone.offsetAt(standardTime.toInstant(zone))
+            val summerOffset = zone.offsetAt(summerTime.toInstant(zone))
+            assertNotEquals(standardOffset, summerOffset, "same offsets for year $year")
+        }
+    }
+```
+
+This passes on JVM, but on JS, it fails for the year 2038! Not a lot of leeway!
+At least I'm confident that there are no timezone transitions after that, so
+that's a relief.
+
+```kotlin
+public actual open class JodaTimeLocalTime(override val value: LocalTime) : JodaTimeTemporal(value) {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeLocalTime && value.equals(other.value))
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+    actual fun compareTo(other: JodaTimeLocalTime): Int = value.compareTo(other.value)
+    actual fun hour(): Int = value.hour()
+    actual fun minute(): Int = value.minute()
+    actual fun nano(): Double = value.nano()
+    actual fun second(): Int = value.second()
+    actual fun toNanoOfDay(): Double = value.toNanoOfDay()
+    actual fun toSecondOfDay(): Int = value.toSecondOfDay()
+
+    actual companion object {
+        actual var MIN: JodaTimeLocalTime = JodaTimeLocalTime(LocalTime.MIN)
+        actual var MAX: JodaTimeLocalTime = JodaTimeLocalTime(LocalTime.MAX)
+        actual fun of(hour: Int, minute: Int, second: Int, nanoOfSecond: Int): JodaTimeLocalTime =
+            JodaTimeLocalTime(jsTry { LocalTime.of(hour, minute, second, nanoOfSecond) })
+        actual fun ofNanoOfDay(nanoOfDay: Double): JodaTimeLocalTime =
+            JodaTimeLocalTime(jsTry { LocalTime.ofNanoOfDay(nanoOfDay) })
+        actual fun ofSecondOfDay(secondOfDay: Int, nanoOfSecond: Int): JodaTimeLocalTime =
+            JodaTimeLocalTime(jsTry { LocalTime.ofSecondOfDay(secondOfDay, nanoOfSecond) })
+        actual fun parse(text: String): JodaTimeLocalTime =
+            JodaTimeLocalTime(jsTry { LocalTime.parse(text) })
+    }
+}
+```
+
+Completely straightforward.
+
+```kotlin
+public actual open class JodaTimeOffsetDateTime(override val value: OffsetDateTime) : JodaTimeTemporal(value) {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeOffsetDateTime && value.equals(other.value))
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+    actual fun toInstant(): JodaTimeInstant = JodaTimeInstant(value.toInstant())
+
+    actual companion object {
+        actual fun ofInstant(instant: JodaTimeInstant, zone: JodaTimeZoneId): JodaTimeOffsetDateTime =
+            JodaTimeOffsetDateTime(OffsetDateTime.ofInstant(instant.value, zone.value))
+        actual fun parse(text: String): JodaTimeOffsetDateTime =
+            JodaTimeOffsetDateTime(jsTry { OffsetDateTime.parse(text) })
+    }
+}
+```
+
+Not straightforward. Why do we even need this?.. Ah, `toString`. Sure. Well,
+`toString` works properly for `Instant.MAX` and `Instant.MIN`, so everything's
+alright.
+
+```kotlin
+public actual open class JodaTimeZonedDateTime(override val value: ZonedDateTime) : JodaTimeChronoZonedDateTime(value) {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeZonedDateTime && value.equals(other.value))
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+    actual fun plusDays(days: Int): JodaTimeZonedDateTime =
+        JodaTimeZonedDateTime(jsTry { value.plusDays(days) })
+    actual fun plusDays(days: Double): JodaTimeZonedDateTime =
+        JodaTimeZonedDateTime(jsTry { value.plusDays(days) })
+    actual fun plusHours(hours: Int): JodaTimeZonedDateTime =
+        JodaTimeZonedDateTime(jsTry { value.plusHours(hours) })
+    actual fun plusMinutes(minutes: Int): JodaTimeZonedDateTime =
+        JodaTimeZonedDateTime(jsTry { value.plusMinutes(minutes) })
+    actual fun plusMonths(months: Int): JodaTimeZonedDateTime =
+        JodaTimeZonedDateTime(jsTry { value.plusMonths(months) })
+    actual fun plusMonths(months: Double): JodaTimeZonedDateTime =
+        JodaTimeZonedDateTime(jsTry { value.plusMonths(months) })
+    actual fun plusNanos(nanos: Double): JodaTimeZonedDateTime =
+        JodaTimeZonedDateTime(jsTry { value.plusNanos(nanos) })
+    actual fun plusSeconds(seconds: Int): JodaTimeZonedDateTime =
+        JodaTimeZonedDateTime(jsTry { value.plusSeconds(seconds) })
+}
+```
+
+Ok.
+
+```kotlin
+public actual open class JodaTimeZoneId(open val value: ZoneId)  {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeZoneId && value.equals(other.value))
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+    actual fun id(): String = value.id()
+    actual fun normalized(): JodaTimeZoneId = JodaTimeZoneId(value.normalized())
+    actual fun rules(): JodaTimeZoneRules = JodaTimeZoneRules(value.rules())
+
+    actual companion object {
+        actual fun systemDefault(): JodaTimeZoneId = JodaTimeZoneId(ZoneId.systemDefault())
+        actual fun of(zoneId: String): JodaTimeZoneId = JodaTimeZoneId(jsTry { ZoneId.of(zoneId) })
+    }
+}
+```
+
+`of` is guarded, but `systemDefault` is questionable. Effectively, it's doing
+
+```javascript
+ZoneId.systemDefault = new SystemDefaultZoneId();
+try {
+    const resolvedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    ZoneId.systemDefault = function() {
+        ZoneId.of(resolvedTimeZone);
+    }
+} catch (err) {
+    return;
+}
+```
+
+Ok, so if it's *not* resolved, this won't throw be will return a generic result.
+
+```kotlin
+public actual open class JodaTimeZoneOffset(override val value: ZoneOffset) : JodaTimeZoneId(value) {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeZoneOffset && value.equals(other.value))
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+    actual fun totalSeconds(): Int = value.totalSeconds()
+
+    actual companion object {
+        actual var UTC: JodaTimeZoneOffset = JodaTimeZoneOffset(ZoneOffset.UTC)
+        actual fun of(offsetId: String): JodaTimeZoneOffset =
+            JodaTimeZoneOffset(jsTry { ZoneOffset.of(offsetId) })
+        actual fun ofHoursMinutesSeconds(hours: Int, minutes: Int, seconds: Int): JodaTimeZoneOffset =
+            JodaTimeZoneOffset(jsTry { ZoneOffset.ofHoursMinutesSeconds(hours, minutes, seconds) })
+        actual fun ofTotalSeconds(totalSeconds: Int): JodaTimeZoneOffset =
+            JodaTimeZoneOffset(jsTry { ZoneOffset.ofTotalSeconds(totalSeconds) })
+    }
+}
+
+public actual open class JodaTimeDayOfWeek(private val value: DayOfWeek) {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeDayOfWeek && value.equals(other.value))
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+    actual fun value(): Int = value.value()
+}
+
+public actual open class JodaTimeMonth(private val value: Month) {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeMonth && value.equals(other.value))
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+    actual fun value(): Int = value.value()
+}
+```
+
+These are all completely trivial.
+
+```kotlin
+public actual open class JodaTimeZoneRules(private val value: ZoneRules)  {
+    actual override fun equals(other: Any?): Boolean = this === other || (other is JodaTimeZoneRules && value === other.value)
+    actual override fun hashCode(): Int = value.hashCode()
+    actual override fun toString(): String = value.toString()
+    actual fun isFixedOffset(): Boolean = value.isFixedOffset()
+    actual fun offsetOfInstant(instant: JodaTimeInstant): JodaTimeZoneOffset =
+        JodaTimeZoneOffset(value.offsetOfInstant(instant.value))
+}
+```
+
+Oh, I actually remember a case when `isFixedOffset` threw an exception on
+Android. However, on JS, with `this._tzdbInfo.offsets.length === 1;`, there's
+nothing to throw (except the property accesses, but as far as I can see, in the
+JsJoda codebase, the culture of property initialization is strong).
+
+As for `offsetOfInstant`... Hm.
+
+Let's look at this again:
+
+```
+31494816403199
+9007199254740991
+```
+
+If we multiply the top number by 1000, we get
+
+```
+31494816403199000
+ 9007199254740991
+```
+
+That's how many milliseconds there are in an `Instant` at most. Clearly an
+unsafe number.
+
+```javascript
+offsetOfInstant(instant){
+    const epochMilli = instant.toEpochMilli();
+    return this.offsetOfEpochMilli(epochMilli);
+}
+```
+
+```javascript
+toEpochMilli() {
+    const millis = MathUtil.safeMultiply(this._seconds, 1000);
+    return millis + MathUtil.intDiv(this._nanos, NANOS_PER_MILLI);
+}
+```
+
+This will throw on `Instant.MAX_VALUE`!
+
+Yep, `Instant.MAX.offsetIn(TimeZone.of("Europe/Berlin")` crashes.
+Disappointigly, it also crashes on the JVM.
+
+But it passes on Linux!
+
+How do I write a test for this?..
+
+```kotlin
+Instant.MAX.minus(3, DateTimeUnit.YEAR, zone).offsetIn(zone)
+```
+
+No, this also fails, except everywhere, as `minus` converts to `LocalDateTime`
+first.
+
+Here:
+
+```
+// without the minus, this test fails on JVM
+(Instant.MAX - (2 * 365).days).offsetIn(zone)
+```
+
+Why did I write this, though? It still won't work on JS.
+
+In any case, I suggested incorporating the fix into the Wasm development branch
+<https://github.com/Kotlin/kotlinx-datetime/pull/321>.
