@@ -8820,3 +8820,800 @@ Why did I write this, though? It still won't work on JS.
 
 In any case, I suggested incorporating the fix into the Wasm development branch
 <https://github.com/Kotlin/kotlinx-datetime/pull/321>.
+
+2023-12-01
+----------
+
+I was busy doing the Friday things and finishing the planning for the datetime
+library, when suddenly, it turned out we could publish a release of the
+coroutines library today. So, I drop everything, Google "a new hope soundtrack"
+and concentrate on following instructions to the letter.
+
+The `RELEASE.md` file at the root of our repository specifies what exactly we
+need to do.
+
+... Step 3, `git merge origin/master` fails. Leia's ship appears on the screen.
+
+It seems like the merge conflict is fairly simple.
+
+```
+        both modified:   README.md
+        both modified:   gradle.properties
+        both modified:   gradle/dokka.gradle.kts
+        both modified:   integration-testing/gradle.properties
+```
+
+In both of `gradle.properties`, the changes are independent version updates on
+the lines that happened to be nearby. In `README.md`, also something similar.
+In `gradle/dokka.gradle.kts` is the only non-trivial decision: the Wasm PR added
+publication of Wasm documentation, and in `master`, there's already a PR that
+essentially does a `foreach` on the list of all platforms instead. Well, I can
+simply use the version from `master`.
+
+Moving on.
+
+By the time I've finished writing the changelog, Obi-Wan already made his
+entrance.
+
+By the time I've double-checked everything... What's going on in the movie?
+I'm not sure about this moment. I think it's them entering the Death Star... No,
+why would the Force theme be placed directly after that? Also, I think I
+would've heard the moment when Alderaan was destroyed. And I'm hearing clearly
+the Tatooine themes. We must be near the burning homestead, I think. This makes
+more sense: otherwise, it would mean that one third of the movie went by as I
+double-checked the release PR.
+
+By the time the build finished after all the small fixes, the end credits are
+rolling for episode V. I guess I'll have to stay a bit late to actually see this
+published today. Not the best way to spend the Friday evening, but someone has
+to release the library. It's a zero-sum game: if I leave and ask someone else to
+release it, then they will have to spend the Friday evening waiting for the
+build to pass...
+
+What?
+
+Before my very own eyes, the build just *stopped* and restarted. Ok, add another
+hour to my time at work today.
+
+Sadly, publishing is not even an involved process. For the next 45 minutes
+(at least) I'm just doing some other work.
+
+Ok, why not. Let's spend the Friday evening typing away on the (less than
+mediocre) Apple laptop to support the (less than mediocre) Darwin platform in
+the kotlinx-datetime library.
+
+Splendid: after wasting another 40 minutes, the build failed with
+<https://github.com/Kotlin/kotlinx.coroutines/issues/3936>. Restarting and
+getting ready to waste even more of the evening on this.
+
+2023-04-12
+----------
+
+Staying at home today, as the trains refused to deliver me to the office.
+Not a problem: I'd like to look into `ZonedDateTime`, and I don't need my work
+laptop to read through other people's code.
+
+My hypothesis is that `Instant`, a moment in time, is not always the right
+abstraction for datetime arithmetics. `ZonedDateTime`, a combination of
+the calendar date/time and the corresponding time zone, just feels like the
+more appropriate mental model.
+
+For example, our API is flexible enough to allow things like this:
+```kotlin
+Clock.System.now()
+  .plus(1, DateTimeUnit.DAY, TimeZone.of("Europe/Berlin"))
+  .plus(1, DateTimeUnit.DAY, TimeZone.of("America/New_York"))
+  .toLocalDateTime(TimeZone.of("Europe/Moscow"))
+```
+
+But this is just nonsense!
+
+On the other hand, our API requires meaningless repetition in cases like
+
+```kotlin
+localDateTime
+  .toInstant(timeZone)
+  .plus(1, DateTimeUnit.DAY, timeZone)
+  .toLocalDateTime(timeZone)
+```
+
+It could be much more straightforward:
+
+```kotlin
+localDateTime
+  .atZone(timeZone)
+  .plus(1, DateTimeUnit.DAY)
+  .localDateTime
+```
+
+Yet that's a hypothesis. First, I'll need to validate that it does happen.
+
+I'll be searching for code that uses `DateTimeUnit`, trying to understand if
+`ZonedDateTime` would meaningfully simplify it. Maybe I'll find more than I
+bargained for on the way. We'll see.
+
+---
+
+<https://github.com/hi-manshu/Kalendar/blob/2d6a5cfaa77ad97b03fd8ad6a609ba5627cf11eb/kalendar/src/main/java/com/himanshoe/kalendar/ui/oceanic/util/WeekData.kt#L29>
+
+This specimen implements a date range, which is a long-standing feature request.
+
+`isLeapYear` at the bottom of the file also caught my interest, but it's just
+used to calculate the number of days in a month:
+<https://github.com/hi-manshu/Kalendar/blob/2d6a5cfaa77ad97b03fd8ad6a609ba5627cf11eb/kalendar/src/main/java/com/himanshoe/kalendar/ui/firey/KalendarFirey.kt#L101>
+
+---
+
+<https://github.com/data2viz/data2viz/blob/5640d3e8f1ce4cd4e5d651431726869e329520fc/scale/src/commonMain/kotlin/io/data2viz/scale/intervals/intervals.kt#L16>
+
+This is a way to implement iterating over `Instant` values with a given step.
+Ok, makes sense.
+
+<https://github.com/data2viz/data2viz/blob/5640d3e8f1ce4cd4e5d651431726869e329520fc/scale/src/commonMain/kotlin/io/data2viz/scale/intervals/intervals.kt#L62-L73>
+looks like something that temporal accessors <https://github.com/Kotlin/kotlinx-datetime/issues/325>
+could help a lot with.
+
+---
+
+<https://github.com/JuulLabs/krayon/blob/d9fab622e79312c274c7fd859da3eeed129bf984/time/src/commonMain/kotlin/WeekInterval.kt#L16>
+
+```kotlin
+    // TODO: Optimize this via math
+    override fun floor(input: LocalDateTime): LocalDateTime =
+        generateSequence(input.date) { it.minus(1, DateTimeUnit.DAY) }
+            .first { it.dayOfWeek == dayOfWeek }
+            .atTime(0, 0)
+```
+
+Another use case for temporal accessors.
+
+The best arithmetics on dates and times is the one someone else does for you!
+
+By the way, this, too, is in the service of intervals with steps. Something to
+keep in mind.
+
+---
+
+<https://github.com/dcxp/opentelemetry-kotlin/blob/43967d97f58592ed808b2d04d26bc80c53f4d670/api/all/src/commonMain/kotlin/io/opentelemetry/kotlin/api/common/DateTimeUnit.ext.kt#L5>
+
+```kotlin
+fun DateTimeUnit.getNanos(): Long {
+    return when (this) {
+        is DateTimeUnit.TimeBased -> nanoseconds
+        is DateTimeUnit.DayBased -> DateTimeUnit.HOUR.nanoseconds * 24 * days
+        is DateTimeUnit.MonthBased ->
+            throw IllegalStateException("Month based DateTimeUnits can not be converted to nanos")
+    }
+}
+```
+
+Wow, thanks, I hate it!
+
+Essentially, someone confused `DateTimeUnit` with `Duration`.
+
+---
+
+<https://github.com/batoulapps/adhan-kotlin/blob/748ecd751eca5db2f34561f630096ad2b36a7921/adhan/src/commonMain/kotlin/com/batoulapps/adhan2/PrayerTimes.kt#56>
+
+```kotlin
+    val tomorrowDate: LocalDateTime = add(prayerDate, 1, DateTimeUnit.DAY)
+```
+
+Heh, someone somewhere is praying at the incorrect time because they are using
+`LocalDateTime` arithmetics. I hope the divine punishment for this honest
+error is not too severe in that religion... This is Islamic library. I don't
+know enough about Islam to judge the degree of the sin.
+
+This whole repo is seemingly a treasure trove of misusing our API.
+
+```kotlin
+
+  private fun LocalDateTime.before(other: LocalDateTime): Boolean {
+    return toInstant(TimeZone.UTC).toEpochMilliseconds() <
+        other.toInstant(TimeZone.UTC).toEpochMilliseconds()
+  }
+
+  private fun LocalDateTime.after(other: LocalDateTime): Boolean {
+    return toInstant(TimeZone.UTC).toEpochMilliseconds() >
+        other.toInstant(TimeZone.UTC).toEpochMilliseconds()
+  }
+```
+
+This could be rewritten as
+
+```kotlin
+fun LocalDateTime.before(other: LocalDateTime) = this < other
+
+fun LocalDateTime.after(other: LocalDateTime) = this > other
+```
+
+But this is a good reminder to introduce
+<https://github.com/Kotlin/kotlinx-datetime/issues/137> so that people who
+copy-paste their Java code naturally arrive to the simple implementation.
+
+They are reimplementing `LocalDate`:
+<https://github.com/batoulapps/adhan-kotlin/blob/748ecd751eca5db2f34561f630096ad2b36a7921/adhan/src/commonMain/kotlin/com/batoulapps/adhan2/data/DateComponents.kt>
+
+and `LocalTime`, though with the unique twist of allowing negative hours, or
+so it would seem:
+<https://github.com/batoulapps/adhan-kotlin/blob/748ecd751eca5db2f34561f630096ad2b36a7921/adhan/src/commonMain/kotlin/com/batoulapps/adhan2/data/TimeComponents.kt>
+Though for negative hours, it seems buggy: `-23.5` hours is actually
+`-23.hours + 30.minutes`, no? Ah, well.
+
+The meat of this repository for me is
+<https://github.com/batoulapps/adhan-kotlin/blob/748ecd751eca5db2f34561f630096ad2b36a7921/adhan/src/commonMain/kotlin/com/batoulapps/adhan2/data/CalendarUtil.kt>
+
+The utility methods the author needed but didn't find in our library.
+
+```kotlin
+  fun LocalDateTime.toUtcInstant(): Instant = toInstant(TimeZone.UTC)
+```
+
+The existence of this method looks like a bug in and of itself.
+
+```kotlin
+  private fun resolveTime(year: Int, month: Int, day: Int): LocalDateTime {
+    return LocalDateTime(year, month, day, 0, 0, 0)
+  }
+```
+
+This is essentally `localDate.atStartOfDay().toLocalDateTime(TimeZone.UTC)`,
+except the latter is much more error-proof.
+
+The comment explains why it's needed:
+
+```kotlin
+   * Gets a date for the particular date
+```
+
+Maybe I'm wrong and all this person wants to do is actually to manipulate
+exactly the UTC time, so everything's fine? If so, manipulating
+`ZonedDateTime` with the UTC time zone would express that intent more clearly.
+
+```kotlin
+  fun add(localDateTime: LocalDateTime, amount: Int, dateTimeUnit: DateTimeUnit): LocalDateTime {
+    val timezone = TimeZone.UTC
+    val instant = localDateTime.toInstant(timezone)
+    return add(instant, amount, dateTimeUnit)
+  }
+```
+
+The same story: only valid when there are no timezone transitions.
+
+Looking at <https://github.com/batoulapps/adhan-kotlin/blob/main/README.md>, I
+get the impression that sticking to UTC is entirely justified and intentional:
+it is performing astronomical calculations, always returning the result in UTC.
+Maybe the methods for calculating this are all in terms of UTC as well.
+This does suggest that the user of the library is actually correct, the problem
+is only that we don't provide a data structure that's comfortable enough to use
+for this use case. They need both the access to the raw fields like `day` and
+the arithmetics.
+
+So, I'm sure this could be written better in small places, but overall, I was
+too quick to jump to conclusions. I don't see any obvious bugs, except maybe the
+strange `TimeComponents`.
+
+---
+
+<https://github.com/GerardPaligot/conferences4hall/blob/472258a2383d15232d7c205529bc0688667fbd93/shared/core/src/androidMain/kotlin/org/gdglille/devfest/AlarmScheduler.kt#L42-L48>
+
+```kotlin
+val time =
+    talkItem.startTime.toLocalDateTime().toInstant(TimeZone.currentSystemDefault())
+        .minus(ReminderInMinutes, DateTimeUnit.MINUTE).toEpochMilliseconds()
+alarmManager.set(
+    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+    SystemClock.elapsedRealtime() + (time - Clock.System.now().toEpochMilliseconds()),
+    pendingIntent
+)
+```
+
+This can be rewritten to
+
+```kotlin
+val time = talkItem.startTime.toLocalDateTime().toInstant(TimeZone.currentSystemDefault())
+val remindIn = time - Clock.System.now() - ReminderInMinutes.minutes
+alarmManager.set(
+    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+    SystemClock.elapsedRealtime() + remindIn.inWholeMilliseconds(),
+    pendingIntent
+)
+```
+
+Looks pretty straightforward to me, nothing to improve API-wise.
+
+---
+
+<https://github.com/joelkanyi/MealTime/blob/e911cc8264c340353814746e45ac2e11defdd551/core/common/src/main/java/com/joelkanyi/common/util/UtilFunctions.kt#L237-L252>
+
+```kotlin
+fun calendarLocalDates(): List<LocalDate> {
+    val thisYear = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).year
+    val lastYear = thisYear - 1
+    val nextYear = thisYear + 1
+    val dates = mutableListOf<LocalDate>()
+    for (i in 0..365) {
+        dates += LocalDate(thisYear, 1, 1).plus(i, DateTimeUnit.DAY)
+    }
+    for (i in 0..365) {
+        dates += LocalDate(lastYear, 1, 1).plus(i, DateTimeUnit.DAY)
+    }
+    for (i in 0..365) {
+        dates += LocalDate(nextYear, 1, 1).plus(i, DateTimeUnit.DAY)
+    }
+    return dates
+}
+```
+
+Another implementation of a range of dates, and an incorrect one at that, as it
+doesn't take leap years into account.
+
+---
+
+Alright, as I'm mostly interested in time zones and arithmetics that involves
+them, let's narrow our search.
+
+Instead of
+<https://github.com/search?q=DateTimeUnit.+language%253AKotlin&type=code&l=Kotlin>,
+we'll have
+<https://github.com/search?q=DateTimeUnit.DAY%2C&type=code>.
+
+Yes, this immediately yielded some better results.
+
+---
+
+<https://github.com/streetcomplete/StreetComplete/blob/4f287e194b30ad73a075fe689ce7db1be8dd12f9/app/src/main/java/de/westnordost/streetcomplete/screens/user/profile/DatesActiveDrawable.kt#L90>
+
+```kotlin
+            time = time.minus(1, DateTimeUnit.DAY, TimeZone.UTC)
+```
+
+Here, I'm confident this is a mistake: why does the Github-style
+activity-for-dates grid only support the UTC time zone?
+
+---
+
+<https://github.com/hyperskill/mobile-app/blob/08417af603b77c5db4e81733d3fcecea1225472b/shared/src/commonMain/kotlin/org/hyperskill/app/core/utils/DateTimeUtils.kt#L22>
+
+```kotlin
+val tzNewYork = TimeZone.NYC
+val nowInNewYork = Clock.System.now().toLocalDateTime(tzNewYork).toInstant(tzNewYork)
+val tomorrowInNewYork = nowInNewYork.plus(1, DateTimeUnit.DAY, tzNewYork).toLocalDateTime(tzNewYork)
+val startOfTomorrow = LocalDateTime(
+    year = tomorrowInNewYork.year,
+    month = tomorrowInNewYork.month,
+    dayOfMonth = tomorrowInNewYork.dayOfMonth,
+    hour = 0,
+    minute = 0,
+    second = 0,
+    nanosecond = 0
+)
+return (startOfTomorrow.toInstant(tzNewYork) - nowInNewYork).inWholeSeconds
+```
+
+First of all, `toLocalDateTime(tzNewYork).toInstant(tzNewYork)` is just a no-op
+in most cases, and where it does something, it's just harmful.
+
+Second, zeroing out the local time can be done easier:
+
+```kotlin
+val tzNewYork = TimeZone.NYC
+val now = Clock.System.now()
+val tomorrowInNewYork = now.plus(1, DateTimeUnit.DAY, tzNewYork).toLocalDateTime(tzNewYork)
+val startOfTomorrow = tomorrowInNewYork.date.atStartOfDay(tzNewYork)
+return (startOfTomorrow - now).inWholeSeconds
+```
+
+If we had temporal adjusters... this would actually be error-prone!
+
+```kotlin
+val tzNewYork = TimeZone.NYC
+val now = Clock.System.now()
+val startOfTomorrow = now.nextWithTime(time = LocalTime(hour = 0, minute = 0), tzNewYork)
+return (startOfTomorrow - now).inWholeSeconds
+```
+
+This hides a subtle error: if the following day doesn't have the midnight
+(for example, if 23:30 was directly followed by 00:30), this will skip more than
+24 hours, which is not what's expected.
+
+... Or we could implement `nextWithTime` by first adjusting the time blindly and
+only then resolving the time gaps. Except that's not semantically clear:
+who would expect `nextWithTime` not to set exactly the time it's asked to find?
+
+... Except in `ZonedDateTime`! There, the whole semantics of "this is all done
+on `LocalDateTime` and the resolution only happens at the end" will naturally
+map to this assumption.
+
+
+Let's look at the second function in that file:
+
+```kotlin
+val tzNewYork = TimeZone.NYC
+val nowInNewYork = Clock.System.now().toLocalDateTime(tzNewYork)
+val nowInNewYorkInstant = nowInNewYork.toInstant(tzNewYork)
+
+// Calculate the number of days until the next Sunday and add that number of days to the current date.
+val nextSundayInNewYorkInstant = if (nowInNewYork.dayOfWeek == DayOfWeek.SUNDAY) {
+    nowInNewYorkInstant.plus(1, DateTimeUnit.WEEK, tzNewYork)
+} else {
+    val daysUntilSunday = (DayOfWeek.SUNDAY.ordinal - nowInNewYork.dayOfWeek.ordinal + 7) % 7
+    nowInNewYorkInstant.plus(daysUntilSunday.toLong(), DateTimeUnit.DAY, tzNewYork)
+}
+
+val nextSundayInNewYork = nextSundayInNewYorkInstant.toLocalDateTime(tzNewYork)
+val startOfNextSunday = LocalDateTime(
+    year = nextSundayInNewYork.year,
+    month = nextSundayInNewYork.month,
+    dayOfMonth = nextSundayInNewYork.dayOfMonth,
+    hour = 0,
+    minute = 0,
+    second = 0,
+    nanosecond = 0
+)
+
+return (startOfNextSunday.toInstant(tzNewYork) - nowInNewYorkInstant).inWholeSeconds
+```
+
+Let's simplify this first.
+
+```kotlin
+val tzNewYork = TimeZone.NYC
+val now = Clock.System.now()
+val dayOfWeekInNewYork = now().toLocalDateTime(tzNewYork).dayOfWeek
+
+// Calculate the number of days until the next Sunday and add that number of days to the current date.
+val nextSunday = if (dayOfWeekInNewYork == DayOfWeek.SUNDAY) {
+    now.plus(1, DateTimeUnit.WEEK, tzNewYork)
+} else {
+    val daysUntilSunday = (DayOfWeek.SUNDAY.ordinal - dayOfWeekInNewYork.ordinal + 7) % 7
+    now.plus(daysUntilSunday.toLong(), DateTimeUnit.DAY, tzNewYork)
+}
+
+val nextSundayInNewYork = nextSunday.toLocalDateTime(tzNewYork)
+val startOfNextSunday = nextSundayInNewYork.date.atStartOfDay(tzNewYork)
+
+return (startOfNextSunday - now).inWholeSeconds
+```
+
+Now, imagine we had `ZonedDateTime`.
+
+```kotlin
+val tzNewYork = TimeZone.NYC
+val nowInNewYork = Clock.System.now().atZone(tzNewYork)
+
+// Calculate the number of days until the next Sunday and add that number of days to the current date.
+val nextSundayInNewYork = if (nowInNewYork.dayOfWeek == DayOfWeek.SUNDAY) {
+    nowInNewYork.plus(1, DateTimeUnit.WEEK)
+} else {
+    val daysUntilSunday = (DayOfWeek.SUNDAY.ordinal - nowInNewYork.dayOfWeek.ordinal + 7) % 7
+    nowInNewYork.plus(daysUntilSunday, DateTimeUnit.DAY)
+}
+
+val startOfNextSunday = nextSundayInNewYork.localDateTime.date.atStartOfDay(tzNewYork)
+
+return (startOfNextSunday - now).inWholeSeconds
+```
+
+... and some style...
+
+```kotlin
+val tzNewYork = TimeZone.NYC
+val nowInNewYork = Clock.System.now().atZone(tzNewYork)
+
+// Calculate the number of days until the next Sunday and add that number of days to the current date.
+val nextSundayInNewYork = with(nowInNewYork) {
+    if (dayOfWeek == DayOfWeek.SUNDAY) {
+        plus(1, DateTimeUnit.WEEK)
+    } else {
+        val daysUntilSunday = (DayOfWeek.SUNDAY.ordinal - dayOfWeek.ordinal + 7) % 7
+        plus(daysUntilSunday, DateTimeUnit.DAY)
+    }
+}
+
+val startOfNextSunday = nextSundayInNewYork.localDateTime.date.atStartOfDay(tzNewYork)
+
+return (startOfNextSunday - now).inWholeSeconds
+```
+
+Now that I think about it, `ZonedDateTime` would not be useful here, were this
+code written more idiomatically. Here's a viable alternative:
+
+```kotlin
+val tzNewYork = TimeZone.NYC
+val now = Clock.System.now()
+val todayInNewYork = now.toLocalDateTime(tzNewYork).date
+
+// Calculate the number of days until the next Sunday and add that number of days to the current date.
+val nextSundayInNewYork = with(todayInNewYork) {
+    val nextSunday = if (dayOfWeek == DayOfWeek.SUNDAY) {
+        plus(1, DateTimeUnit.WEEK)
+    } else {
+        val daysUntilSunday = (DayOfWeek.SUNDAY.ordinal - dayOfWeek.ordinal + 7) % 7
+        plus(daysUntilSunday.toLong(), DateTimeUnit.DAY)
+    }
+}
+
+val startOfNextSunday = nextSundayInNewYork.atStartOfDay(tzNewYork)
+
+return (startOfNextSunday - now).inWholeSeconds
+```
+
+Without temporal adjusters, this is on par with `ZonedDateTime`.
+
+---
+
+This seems to be a theme: people are just unaware that `LocalDate` has its own
+arithmetics.
+
+<https://github.com/Scogun/kcron-common/blob/56a32c9f1e119191e939cab275766e184f98e677/src/commonMain/kotlin/com/ucasoft/kcron/builders/Builder.kt#L199>
+
+```kotlin
+private fun nearestWorkDayTo(year: Int, month: Int, lastMonthDay: Int, day: Int) : Int {
+    var checkingDay = LocalDateTime(year, month, day, 0, 0)
+    if (checkingDay.dayOfWeek.isoDayNumber >= 6) {
+        checkingDay = if (checkingDay.dayOfWeek.isoDayNumber == 6) {
+            if (checkingDay.dayOfMonth > 1) {
+                checkingDay.minusDays(1)
+            } else {
+                checkingDay.plusDays(2)
+            }
+        } else if (checkingDay.dayOfMonth < lastMonthDay) {
+            checkingDay.plusDays(1)
+        } else {
+            checkingDay.minusDays(2)
+        }
+    }
+    return checkingDay.dayOfMonth
+}
+
+fun LocalDateTime.plusDays(days: Int, timeZone: TimeZone = TimeZone.currentSystemDefault()): LocalDateTime {
+    return plus(this, days, DateTimeUnit.DAY, timeZone)
+}
+
+fun LocalDateTime.minusDays(days: Int, timeZone: TimeZone = TimeZone.currentSystemDefault()): LocalDateTime {
+    return plus(this, if (days > 0) { days * -1 } else { days }, DateTimeUnit.DAY, timeZone)
+}
+
+private fun plus(self: LocalDateTime, value: Int, unit: DateTimeUnit, timeZone: TimeZone) : LocalDateTime {
+    return self.toInstant(timeZone).plus(value, unit, timeZone).toLocalDateTime(timeZone)
+}
+```
+
+I don't even want to imagine the edge cases where this will fail (but there are
+some!). Here's what won't fail:
+
+```kotlin
+private fun nearestWorkDayTo(year: Int, month: Int, lastMonthDay: Int, day: Int) : Int {
+    var checkingDay = LocalDate(year, month, day)
+    if (checkingDay.dayOfWeek.isoDayNumber >= 6) {
+        checkingDay = if (checkingDay.dayOfWeek.isoDayNumber == 6) {
+            if (checkingDay.dayOfMonth > 1) {
+                checkingDay.minus(1, DateTimeUnit.DAY)
+            } else {
+                checkingDay.plus(2, DateTimeUnit.DAY)
+            }
+        } else if (checkingDay.dayOfMonth < lastMonthDay) {
+            checkingDay.plus(1, DateTimeUnit.DAY)
+        } else {
+            checkingDay.minus(2, DateTimeUnit.DAY)
+        }
+    }
+    return checkingDay.dayOfMonth
+}
+```
+
+This function is an extra WTF:
+
+```kotlin
+fun LocalDateTime.minusDays(days: Int, timeZone: TimeZone = TimeZone.currentSystemDefault()): LocalDateTime {
+    return plus(this, if (days > 0) { days * -1 } else { days }, DateTimeUnit.DAY, timeZone)
+}
+```
+
+With this, `x - (-3) == x - 3`. I can *sort of* see the logic: `minusDays(-3)`
+must be some subvocalization: "I want to subtract days. How many? -3 days."
+
+Nevermind.
+
+---
+
+<https://github.com/oianmol/ComposeAnimationsPlayground/blob/3497b46538cc6aaefffb7e41acc714268964efd4/common/src/commonMain/kotlin/dev/baseio/composeplayground/ui/animations/anmolverma/IOSSleepSchedule.kt#L222>
+
+```kotlin
+var newStartTime =
+    sTime.toInstant(TimeZone.currentSystemDefault()).plus(elapsedTime)
+        .toLocalDateTime(TimeZone.currentSystemDefault())
+var newEndTime = enTime.toInstant(TimeZone.currentSystemDefault()).plus(elapsedTime)
+    .toLocalDateTime(TimeZone.currentSystemDefault())
+
+if (newEndTime.date.dayOfMonth > newStartTime.date.dayOfMonth) {
+    newStartTime = newStartTime.toInstant(TimeZone.currentSystemDefault()).minus(
+        1,
+        DateTimeUnit.DAY, TimeZone.currentSystemDefault()
+    ).toLocalDateTime(TimeZone.currentSystemDefault())
+    newEndTime = newEndTime.toInstant(TimeZone.currentSystemDefault()).minus(
+        1,
+        DateTimeUnit.DAY, TimeZone.currentSystemDefault()
+    ).toLocalDateTime(TimeZone.currentSystemDefault())
+}
+```
+
+What a mess!
+
+This is a statement of fact, not a moral judgement. Before diving in deeper, I
+don't even know who made the mess: the developer, us, or both.
+
+Eh... Let's refactor this, I guess?
+
+```kotlin
+val zone = TimeZone.currentSystemDefault()
+var newStartTime = sTime.toInstant(zone).plus(elapsedTime).toLocalDateTime(zone)
+var newEndTime = enTime.toInstant(zone).plus(elapsedTime).toLocalDateTime(zone)
+
+if (newEndTime.dayOfMonth > newStartTime.dayOfMonth) {
+    newStartTime = newStartTime.toInstant(zone).minus(1, DateTimeUnit.DAY, zone).toLocalDateTime(zone)
+    newEndTime = newEndTime.toInstant(zone).minus(1, DateTimeUnit.DAY, zone).toLocalDateTime(zone)
+}
+```
+
+Oh, it's actually okay if we remove the race condition. Though the logic of this
+code eludes me completely. If, after adding a duration to both the end and the
+start they end up at different dates, then we subtract a day from both. Why?..
+
+Ok, doesn't matter. We're here to see if `ZonedDateTime` would express this
+better.
+
+```kotlin
+val zone = TimeZone.currentSystemDefault()
+val sTime = sTime.atZone(zone)
+val enTime = enTime.atZone(zone)
+var newStartTime = sTime.plus(elapsedTime) // likely won't be added
+var newEndTime = enTime.plus(elapsedTime) // likely won't be added
+
+if (newEndTime.dayOfMonth > newStartTime.dayOfMonth) {
+    newStartTime = newStartTime.minus(1, DateTimeUnit.DAY)
+    newEndTime = newEndTime.minus(1, DateTimeUnit.DAY)
+}
+```
+
+Did this help us? To answer this, let's look at how `elapsedTime` is obtained.
+
+```kotlin
+private fun elapsedTime(
+    timeAtUsersFinger: LocalDateTime,
+    sTime: LocalDateTime
+): Duration {
+    val timeAtUsersFingerInstant = timeAtUsersFinger.toInstant(TimeZone.currentSystemDefault())
+    val sTimeInstant = sTime.toInstant(TimeZone.currentSystemDefault())
+    val millisUntil = sTimeInstant.until(timeAtUsersFingerInstant, DateTimeUnit.MILLISECOND)
+    return millisUntil.milliseconds
+}
+```
+
+Simplifying:
+
+```kotlin
+private fun elapsedTime(
+    timeAtUsersFinger: LocalDateTime,
+    sTime: LocalDateTime
+): Duration {
+    val zone = TimeZone.currentSystemDefault()
+    return timeAtUsersFinger.toInstant(zone) - sTime.toInstant(zone)
+}
+```
+
+(Maybe also truncating to whole milliseconds at the end).
+
+This function calculates how many milliseconds passed between the two instants.
+Let's assume that's intentional. Then `elapsedTime` is how long it takes in
+real time, and `plus(elapsedTime)` on a `ZonedDateTime` must perform the
+resolution to calculate the time, effectively going back and forth between
+`LocalDateTime` and `Instant` anyway.
+
+Therefore, `plus(elapsedTime)` semantically doesn't fit into `ZonedDateTime`,
+and this use case is no exception.
+
+```kotlin
+val zone = TimeZone.currentSystemDefault()
+var newStartTime = sTime.toInstant(zone).plus(elapsedTime).atZone(zone)
+var newEndTime = enTime.toInstant(zone).plus(elapsedTime).atZone(zone)
+
+if (newEndTime.dayOfMonth > newStartTime.dayOfMonth) {
+    newStartTime = newStartTime.minus(1, DateTimeUnit.DAY)
+    newEndTime = newEndTime.minus(1, DateTimeUnit.DAY)
+}
+```
+
+This does help out a bit compared to no `ZonedDateTime`, but it's no silver
+bullet. Still, the behavior probably changed for the better: the double
+conversion to `LocalDateTime` is lossy, and here there will only be one at the
+end.
+
+Without knowing what the author meant and what the code is supposed to do,
+tough to say what would improve the code.
+
+---
+
+<https://github.com/HuixingWong/Food2Fork-KMM/blob/85dda1d0ae789874e2473717473b32f43a0b961b/shared/src/commonMain/kotlin/com/codingwithmitch/food2forkkmm/domain/util/DatetimeUtil.kt#L33>
+
+Another piece of code where the author only needed the date but ended up with
+`Instant` arithmetics.
+
+---
+
+<https://github.com/d4l-data4life/hc-data-donation-sdk-kmp/blob/d1f997a7d3aa35a178186bd640e70bdb47a2b799/data-donation-sdk/src/commonMain/kotlin/care/data4life/datadonation/donation/fhir/anonymization/DateTimeConcealer.kt#L50>
+
+Here are some home-grown temporal adjusters.
+
+---
+
+Maybe months would give us more signal?
+
+<https://github.com/search?q=DateTimeUnit.MONTH%2C+language%3AKotlin&type=code&l=Kotlin&p=2>
+
+No, I just don't see any valuable leads at all. People almost never use this.
+
+<https://grep.app/search?q=DateTimeUnit.MONTH%2C&filter[lang][0]=Kotlin>
+is a more telling representation of the same result.
+
+For years, it's even worse:
+
+<https://grep.app/search?q=DateTimeUnit.YEAR%2C&filter[lang][0]=Kotlin>
+
+So, days it is then.
+
+---
+
+<https://github.com/Scogun/kcron-common/blob/56a32c9f1e119191e939cab275766e184f98e677/src/commonMain/kotlin/com/ucasoft/kcron/builders/Builder.kt#L218-L227>
+
+```kotlin
+private fun lastMonthDay(year: Int, month: Int): LocalDateTime {
+    var nextMonth = month + 1
+    var nextYear = year
+    if (nextMonth > 12) {
+        nextYear += 1
+        nextMonth = 1
+    }
+    val firstDayNextMonth = LocalDateTime(nextYear, nextMonth, 1, 0, 0).toInstant(TimeZone.currentSystemDefault())
+    return firstDayNextMonth.plus(-1, DateTimeUnit.DAY, TimeZone.currentSystemDefault()).toLocalDateTime(TimeZone.currentSystemDefault())
+}
+```
+
+First: yes, this is the case for temporal adjusters. But how it was achieved
+here is also representative.
+
+Second: easily achieved with `LocalDate` with even better reliability:
+
+```kotlin
+private fun lastMonthDay(year: Int, month: Int): LocalDateTime {
+    var nextMonth = month + 1
+    var nextYear = year
+    if (nextMonth > 12) {
+        nextYear += 1
+        nextMonth = 1
+    }
+    val lastDay = LocalDate(nextYear, nextMonth, 1).plus(-1, DateTimeUnit.DAY)
+    return lastDay.atStartOfDay(TimeZone.currentSystemDefault())
+}
+```
+
+or better yet,
+
+```kotlin
+private fun lastMonthDay(year: Int, month: Int): LocalDateTime {
+    val thisDay = LocalDate(year, month, 1)
+    val lastDay = thisDay.plus(1, DateTimeUnit.MONTH).minus(1, DateTimeUnit.DAY)
+    return lastDay.atStartOfDay(TimeZone.currentSystemDefault())
+}
+```
+
+Not to mention that you can just return `LocalDate`: the surrounding code
+doesn't seem to be using the time part.
+
+In any case, we see the pattern:
+
+```kotlin
+ldt.toInstant(zone).plus(x, zone).toLocalDateTime(zone)
+```
+
