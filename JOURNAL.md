@@ -9617,3 +9617,223 @@ In any case, we see the pattern:
 ldt.toInstant(zone).plus(x, zone).toLocalDateTime(zone)
 ```
 
+2023-12-05
+----------
+
+Let's double-check <https://github.com/Kotlin/kotlinx.coroutines/pull/3969/>.
+
+```sh
+mkdir oldHtml
+./gradlew clean dokkaHtml
+# check that the general form yields the results I need
+find . -path '*build/dokka*' -exec sh -c 'echo "$0"' '{}' ';'
+find . -path '*build/dokka*' -exec sh -c '[ -d "$0" ] || (mkdir -p oldHtml/${0%/*}; cp "$0" oldHtml/"$0")' '{}' ';'
+```
+
+Whoops, it copied some of the files from `oldHtml` to `oldHtml`. Not a big
+problem.
+
+```sh
+mv oldHtml ..
+./gradlew clean dokkaHtml
+mkdir ../newHtml
+find . -path '*build/dokka*' -exec sh -c '[ -d "$0" ] || (mkdir -p ../newHtml/${0%/*}; cp "$0" ../newHtml/"$0")' '{}' ';'
+```
+
+Could probably have this `find` as a much simpler `rsync` command, but this is
+in my CLI only, it doesn't go to any production.
+
+```sh
+diff -f oldHtml/ newHtml/
+```
+
+Hey, there *are* some differences. Now... how do I read them?
+`difft` doesn't support `-r`, or `--recursive`... What if...
+
+```sh
+difft oldHtml/ newHtml/
+```
+
+Splendid. This way, the differences are extremely readable. Difftastic
+completely changed how I approach diffing: now, I don't have to metodically
+browse through everything, which was especially painful with long lines and/or
+"words."
+
+<https://github.com/Kotlin/kotlinx-datetime/commit/841b0a895e8f8b23bdb0ba4f397273e71743e10f>
+
+
+A quick way to remove the deprecated `SharedImmutable` annotation:
+```sh
+git grep -l SharedImmutable | xargs -n1 sed -i '/SharedImmutable/d'
+```
+
+After trying to upgrade the datetime formatting code I have to the new compiler
+version, I'm getting
+
+```kotlin
+e: file:///home/dmitry.khalanskiy/IdeaProjects/kotlinx-datetime/core/common/src/format/DateTimeFormat.kt:112:25 Unresolved reference: Parser
+e: file:///home/dmitry.khalanskiy/IdeaProjects/kotlinx-datetime/core/common/src/format/DateTimeFormat.kt:112:38 Property delegate must have a 'getValue(AbstractDateTimeFormat<T, U>, KProperty<*>)' method. None of the following functions is suitable:
+public inline operator fun <T> Lazy<Unit>.getValue(thisRef: Any?, property: KProperty<*>): Unit defined in kotlin
+e: file:///home/dmitry.khalanskiy/IdeaProjects/kotlinx-datetime/core/common/src/format/DateTimeFormat.kt:112:45 Unresolved reference: Parser
+e: file:///home/dmitry.khalanskiy/IdeaProjects/kotlinx-datetime/core/common/src/format/DateTimeFormat.kt:128:89 Unresolved reference: it
+```
+
+The IDE doesn't highlight the code as red. The code itself seems *completely*
+benign:
+
+```kotlin
+    private val parser: Parser<U> by lazy { Parser(actualFormat.parser) }
+```
+
+I think it's very strange that it's come to this, but I'll just remove this
+line altogether, it was not all that important.
+
+```kotlin
+e: file:///home/dmitry.khalanskiy/IdeaProjects/kotlinx-datetime/core/common/src/format/DateTimeFormat.kt:114:13 Unresolved reference: Parser
+e: file:///home/dmitry.khalanskiy/IdeaProjects/kotlinx-datetime/core/common/src/format/DateTimeFormat.kt:126:9 Unresolved reference: Parser
+e: file:///home/dmitry.khalanskiy/IdeaProjects/kotlinx-datetime/core/common/src/format/DateTimeFormat.kt:126:110 Unresolved reference: it
+```
+
+Eh? Just what is going on?
+
+Using the fully-qualified name seems to have helped.
+
+Oh, I found the culprit: during the rebase, `Parser.kt` in Native un-deleted
+itself somehow, must be because I made a mistake somewhere. So, the ambiguity
+surfaced in this surprising manner. Removing `Parser.kt` fixed this.
+
+Going through the codebase and adding diagnostic messages:
+
+```sh
+git grep 'require(' | grep -v '{'
+```
+
+2023-12-11
+----------
+
+The last two days of the previous week went by in somewhat of a haze. Quite
+spontaneously, we and @qwwdfsad started cleaning out the mess that are the
+Gradle configs for the coroutines library:
+<https://github.com/Kotlin/kotlinx.coroutines/pull/3966>.
+
+This part of the library was a constant low-key source of problems: no one
+really understood what was going on there. If the project managed to build and
+publish successfully, we called it a success, but any change to the Gradle
+configs required feeling a little bit of sadness each time.
+
+After our sporadic changes, the library is a bit better. Looking at the diff
+right now, we see `+1196 -1315` lines, so seemingly, we didn't save much, but
+notably, a lot of the new code are comments that weren't there before. That's
+a win in my book. There is still much to fix, many workaround of questionable
+usefulness to remove, but that's a story for some other time.
+
+Right now, I'm working on <https://github.com/Kotlin/kotlinx-datetime/pull/327>.
+The problem still is that we don't know how to access the correct timezone
+database in the iOS Simulator, and so there can be discrepancies.
+
+Definitely, it's not a major issue. When we introduce custom timezone databases,
+we'll need to rework `TimeZone.toNSTimeZone` anyway: there *will* be expected
+discrepancies. Still, I'll try to find a cleaner solution for the problem at
+hand today.
+
+My immediate instinct is to use `strace` to capture the filesystem accesses and
+check which files are touched by the iOS Simulator. As far as I understand from
+cursory reading, iOS Simulator is not an emulator and gets its functionality
+from *somewhere* in the filesystem. I'll need to try touching some arbitrary
+file from iOS Simulator and double-check this.
+
+On MacOS, the equivalent to `strace` is `dtrace`. I have two problems:
+
+* I assume the iOS Simulator is not a simple command-line program but some
+  daemon. I will probably need to dynamically attach to it somehow.
+* `dtrace` doesn't seem to be working on modern MacOS versions even under `sudo`
+  due to strict security.
+
+The first problem is straightforward enough to solve: after some searching, I
+see that there's an `opensnoop` command that attaches to everything at once and
+dumps all that's happening. If I time this correctly, I can probably create a
+dump of fairly reasonable size that I could examine.
+
+The second problem is not solved by `opensnoop`, as the security protection
+forbids `opensnoop` as well.
+
+One can disable the protection system-wide:
+<https://developer.apple.com/documentation/security/disabling_and_enabling_system_integrity_protection>
+This should work, and I'm certain this option suits me, as I'm barely ever using
+MacOS, there's just not enough attack surface on it to get infected, and even if
+it does get infected, the stakes are extremely low.
+
+Still, I can't believe there's no better way. Tracing what's going on in the
+system should be a fairly common requirement. Am I to believe that every Apple
+developer disables the system-wide protection?
+
+After some searching, I found the `fs_usage` utility that does seem to work
+even despite the system protection.
+
+```swift
+import Cocoa
+let zone = TimeZone.init(identifier: "Europe/Berlin")
+print(zone.secondsFromGMT())
+```
+
+In one terminal:
+
+```sh
+fs_usage -w -f filesys > usage.txt
+```
+
+In another:
+
+```sh
+swift x.swift
+```
+
+Voila, there's a `Berlin` in the resulting file:
+```
+(R___)    /usr/share/zoneinfo.default/Europe/Berlin
+```
+
+Fun fact observable in `swiftlang-5.9.0.128.108 clang-1500.0.40.1`, the REPL
+mode:
+
+```swift
+import Cocoa
+TimeZone.init(identifier: "Europe/Berlin")
+```
+
+produces the output
+
+```
+$R0: Foundation.TimeZone? = some {
+  _kind = fixed
+  _timeZone = 0x00006000022d4740 {
+    offset = nil
+    lock = {
+      _buffer = {
+        Swift.ManagedBuffer<Foundation._TimeZone.State, Darwin.os_unfair_lock_s> = {
+          Swift.ManagedBuffer<Foundation._TimeZone.State, Darwin.os_unfair_lock_s> = {
+            Swift.ManagedBuffer<Foundation._TimeZone.State, Darwin.os_unfair_lock_s> = {
+```
+and so on, the last line just gets repeated with bigger and bigger offset.
+
+Now I have to force the iOS Simulator to access a time zone and then to observe
+it doing that. Luckily, I already have an iOS project that accesses time zones,
+I can just tweak it a bit.
+
+Ok, so...
+
+```
+(R___)    /usr/share/zoneinfo.default/Europe/Berlin
+```
+
+But... `/usr/share/zoneinfo.default` **does** have `America/Ciudad_Juarez`.
+I didn't solve anything.
+
+It looks like, the thing is, the Darwin framework doesn't simply go to the
+filesystem and check the present files, but instead uses some internal list of
+timezones that didn't get updated in time when a new time zone was introduced.
+
+This sort of solves it by leaving us with no real alternatives: we can either
+limit the set of timezones to the ones available on Darwin or just inform the
+users that `TimeZone.toNSTimeZone` can fail.
+
