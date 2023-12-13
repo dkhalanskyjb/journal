@@ -9837,3 +9837,64 @@ This sort of solves it by leaving us with no real alternatives: we can either
 limit the set of timezones to the ones available on Darwin or just inform the
 users that `TimeZone.toNSTimeZone` can fail.
 
+2023-12-13
+----------
+
+Let's look at this Kotlin code:
+
+```kotlin
+try {
+  f()
+} catch (e: Throwable) {
+  println("Caught a throwable")
+  throw e
+} finally {
+  println("Exiting somehow")
+}
+println("Exited successfully")
+```
+
+In which cases will this code only print `Exiting somehow` and nothing else?
+This is a language question, not a trick question, so
+"if the process terminates between the two lines" doesn't count.
+
+The answer (as far as I know, the complete answer):
+
+```kotlin
+inline fun call(f: () -> Unit) {
+  try {
+    f()
+  } catch (e: Throwable) {
+    println("Caught a throwable")
+    throw e
+  } finally {
+    println("Exiting somehow")
+  }
+  println("Exited successfully")
+}
+
+call {
+  return
+}
+```
+
+I got an amazing opportunity to learn about this third way to exit a block of
+code due to an issue in the code I approved:
+<https://github.com/Kotlin/kotlinx.coroutines/issues/3985>
+
+Not that I didn't know about this behavior, I just never internalized until now
+that `inline` functions are more like macros than functions, breaking
+referential transparency somewhat. Intuitively, I'd expect this non-local return
+to manifest in something like a virtual `throw` call, like kotlinx-coroutines
+does with `CancellationException`. The situation is exactly the same: we want
+to exit the code non-locally due to a non-error event; what's different is the
+solution.
+
+Now, I'll to go through the entire code base, look for other `inline` functions
+that use `finally`, and ensure that they do properly unsubscribe from whatever
+they are using.
+
+After careful testing, I arrived at <https://github.com/Kotlin/kotlinx.coroutines/pull/3986>
+I didn't test the implementations in the reactive integrations that also have
+`inline` functions that call some `inline` functions for which I did add tests,
+as I think it's far too unlikely we'll have to rewrite them.
