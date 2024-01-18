@@ -9898,3 +9898,13 @@ After careful testing, I arrived at <https://github.com/Kotlin/kotlinx.coroutine
 I didn't test the implementations in the reactive integrations that also have
 `inline` functions that call some `inline` functions for which I did add tests,
 as I think it's far too unlikely we'll have to rewrite them.
+
+2024-01-18
+----------
+
+A happy day today: after consulting with the legal team, I received confirmation
+that we no longer have to include copyright notices in each individual file.
+
+```sh
+git grep -l JetBrains | xargs -n1 perl -pi -0 -e 's/\/\*[^\/]*JetBrains s.r.o[^\/]*\/\s+//igs'
+```
