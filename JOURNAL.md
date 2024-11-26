@@ -9908,3 +9908,222 @@ that we no longer have to include copyright notices in each individual file.
 ```sh
 git grep -l JetBrains | xargs -n1 perl -pi -0 -e 's/\/\*[^\/]*JetBrains s.r.o[^\/]*\/\s+//igs'
 ```
+
+2024-07-23
+----------
+
+Today, I'm woking on <https://github.com/Kotlin/kotlinx-datetime/issues/381>.
+For that, I'm classifying all the instances of `java.time.Period.plusDays` I can find.
+
+grep.app only surfaced a single one:
+
+* <https://github.com/rallyhealth/scalacheck-ops/blob/41357feedccf64ec411a4caaf6136d67493617f5/joda/src/test/scala/org/scalacheck/ops/time/joda/JodaLocalDateGeneratorsSpec.scala#L14>
+
+GitHub search for `eriod.plusDays` yielded a bit more usages
+(and a lot of false positives I've had to sift through):
+
+* <https://github.com/nightscape/simpletask-android/blob/c8e65dcad02212640c27a911213e76381ee94cf8/src/main/java/nl/mpcjanssen/simpletask/util/Util.java#L375>
+  here, `Period(0).plusDays(amount)` is just a substitute for constructing the
+  required period.
+* <https://github.com/kovacseni/training-solutions/blob/834e4f86fc8d403249913256a64918250d3434ed/src/main/java/dateperiod/PensionCalculator.java#L28>
+  just something weird. Thankfully, this looks like dead code.
+* <https://github.com/trinhvantu/cmdbuild-3.3.2-src/blob/a2992f24b3401ba7d25d9af2625999c9b903ceb9/utils/lang/src/main/java/org/cmdbuild/utils/date/Interval.java#L25>
+  `Period` and `Duration` are normalized together.
+* <https://github.com/WebDataConsulting/billing/blob/cd0c64e933705f8cbec3bbe7d467512a5e61edea/src/java/com/sapienter/jbilling/server/util/CalendarUtils.java#L171>
+  deprecated and dead code.
+
+2024-11-25
+----------
+
+I feel dumb today, so I've beeing doing the menial work I've stored exactly for
+the state of not being able to do anything more important.
+
+Now that I've gone into groove a bit, let's research
+<https://github.com/Kotlin/kotlinx-datetime/issues/461>. It's an unpleasant
+issue: it's clearly difficult or impossible to implement using the today's API;
+it's clearly possible for us to provide an API to do that (after
+https://github.com/Kotlin/kotlinx-datetime/pull/453 is merged, ensuring it's
+possible for us to access the list of DST transitions on JS as well, which,
+it turns out, we can't do currently!); lastly, the task seems very narrow and
+doesn't lend itself well to providing an orthogonal API.
+
+So, we need
+`fun instantsBetween(start: LocalDateTime, endExclusive: LocalDateTime): List<InstantRange>`.
+Let's start with the fact we have no `InstantRange`.
+Ok, sure; `Pair<Instant, Instant>`.
+How would this function be implemented if not via the direct access to the
+sequence of all transitions?
+
+The Foundation library has a function that could help with that:
+`TimeZone.nextDaylightSavingTimeTransition`.
+
+... but then a prolonged meeting cut the day short.
+
+2024-11-26
+----------
+
+<https://youtrack.jetbrains.com/issue/IJPL-172305> was reported for me to
+investigate.
+For some reason, the issue is private, but after looking at the provided logs,
+I've arrived at this problem statement
+(<https://github.com/Kotlin/kotlinx.coroutines/issues/4280>): in out-of-memory
+scenarios, the internal invariants of coroutines can be violated.
+
+Just what can we do about this? Kotlin does not reify allocations:
+the list of all allocating places would be easy to acquire in something like
+Zig, where allocators need to be passed around manually, but in Kotlin,
+an allocation can happen anywhere and look just like a function call.
+
+I wonder if we can supply a custom allocator to the Kotlin/JVM implementation,
+and there, say something like: "If this allocation happens in the coroutine
+internals, fail the whole program after printing a stacktrace, and otherwise
+delegate to the proper allocator".
+
+A quick search for "jvm replace default allocator" and AI summarization on
+<https://kagi.com/> shows (possibly incorrectly) that the only way to use a
+custom allocator on the JVM is to rebuild the JVM implementation.
+
+If there is no option to use a Java class as an allocator, I doubt I could
+easily get access to the stacktrace of the place calling the allocator from
+inside the allocator, even if I did rebuild the JVM. Let's consider some other
+approaches first.
+
+Maybe a profiler could help? I didn't check whether it could demonstrate
+allocations performed inside each function, but if it could, this would solve
+the issue of finding allocations in our internals.
+
+<https://www.jetbrains.com/help/idea/cpu-and-allocation-profiling-basic-concepts.html>
+oh no, profiling is only available for IDEA Ultimate.
+I'll try to figure out how to run a profiler from the command line, but if
+that fails, I guess I'll try to install Ultimate. As a JetBrains employee,
+I get access to it automatically.
+
+<https://github.com/async-profiler/async-profiler?tab=readme-ov-file#quick-start>
+describes how to attach to a running Java process using its PID.
+There's also a first-party `gradle-profiler` tool by Gradle
+<https://github.com/gradle/gradle-profiler> that automates using profilers,
+but it's for benchmarking of Gradle builds... does this mean the management of
+building gets profiled? What is this regarding: the code my Gradle build
+is running (the actual build) or the code that constitutes my Gradle config?
+
+I need a dumb and straightforward answer, but I don't find one.
+I guess that dumb answer is using an IDE. Though I'd have to move off
+Community Edition sooner or later...
+
+Haha. I've opened JetBrains Toolbox, clicked "Install" on IDEA Ultimate, pressed
+"activate" and chose "license server" as the activation method.
+I don't remember the server URL, but there's a helpful "Discover server" button.
+I've pressed it and immediately, the server was found. I've imported my
+settings from the Community Edition and literally started typing in my journal:
+"Wow, it went surprisingly smoothly". Well, not so fast. Now the IDE wants me to
+activate it again, but this time, there is no "Detect server" button.
+I should have written down the server it had found earlier.
+Things like this are why I avoid using IDEs when I can help it: there is too
+much functionality for anything to work reliably.
+
+Ok, after a couple more minutes, I did find the activation server URL in our
+internal docs.
+Let me try running the usual `kotlinx-coroutines-core` JVM test suite with the
+profiler...
+
+Oh, cool, tests are failing. Let's stop the tests... I get an error message:
+
+```
+Profiler error: Invalid file format: org.openjdk.jmc.flightrecorder.internal.InvalidJfrFileException: No readable chunks in recording
+```
+
+There's an inviting "open" button below the message,
+but all it seems to do is open this same message, but in a bigger window.
+I guess it would be useful if the message were to long to fit in the small
+notification popup?
+
+Ok, I've restarted the `kotlinx-coroutines-core:jvmTest` tests, and now I'm
+going to cancel the execution almost immediately, for the tests not to have
+any time to fail (I guess there is some conflict between our tests and the
+profiler?)...
+
+I've accidentally clicked "run with coverage" instead of "run with profiling",
+and coverage also doesn't work: for some reason, it only shows me the coverage
+of `kotlinx.coroutines.debug.junit5`, which is in a whole separate Gradle
+subproject and has nothing to do with what I'm doing.
+
+Alright, once again, run with *profiling*.
+
+The same error.
+
+Well, I guess if the profiler did work, it would help us with this issue, but
+as is, let's just put a lid on it. It's a datetime week for me anyway,
+I shouldn't waste too much time on detours. Next time, I could run a profiler
+on the company-issued MacBook instead of the Linux PC I'm using as the daily
+driver. Because of how homogenous MacOS is, it's easier for the IDE authors to
+test their code, so in my experience, IDEA works more reliably there.
+Though I still wouldn't bet on it: `kotlinx.coroutines` is a much more complex
+project that abuses the Kotlin compiler in various ways, so it's expected that
+the tooling is going to run into some failure modes that normal user projects
+never have to encounter.
+
+By the way, my issues are not with some nightly version, it's simply
+`IntelliJ IDEA 2024.3 (Ultimate Edition)`.
+
+As for my actual task for today, it's to further research what the migration
+path from `kotlinx.datetime.Instant` to `kotlin.time.Instant` would look like.
+Some findings:
+
+```kotlin
+package kotlinx.datetime
+
+@Deprecated("Use kotlin.time.Instant")
+public typealias Instant = kotlin.time.Instant
+
+// for binary compatibility
+@PublishedApi
+internal class Instant
+```
+
+This doesn't work, no matter how many tricks I try to use to make the compiler
+accept my code: the compiler fails with "Redeclaration" in any case.
+
+```kotlin
+@JvmName("Instant")
+internal class OldInstant
+```
+
+also doesn't work, because `JvmName` can't be applied to classes.
+
+This still wouldn't be a dealbreaker if not for the fact that we can't even
+keep the existing `kotlinx.datetime.Instant`-returning functions while also
+adding `kotlin.time.Instant`-returning functions with the same name. This
+would work on the JVM and JS, but not on Native, where defining two functions
+with equivalent signatures save for their return type is forbidden and
+results in a declaration clash.
+
+We *could* add a function with a default `Unit` parameter, though...
+
+```kotlin
+fun LocalDateTime.toInstant(timeZone: TimeZone, unused: Unit = Unit):
+    kotlin.time.Instant
+```
+
+This would look terrible, but it would preserve binary compatibility.
+The only affected functions are these ones:
+
+```kotlin
+fun String.toInstant(): Instant
+
+class TimeZone {
+    fun LocalDateTime.toInstant(): Instant
+}
+
+fun LocalDateTime.toInstant(timeZone: TimeZone): Instant
+fun LocalDateTime.toInstant(offset: UtcOffset): Instant
+fun LocalDate.atStartOfDayIn(timeZone: TimeZone): Instant
+
+// Darwin
+fun NSDate.toKotlinInstant(): Instant
+
+// JS
+fun Date.toKotlinInstant(): Instant
+
+// Java.Time
+fun java.time.Instant.toKotlinInstant(): Instant
+```
