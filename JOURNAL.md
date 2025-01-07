@@ -10127,3 +10127,199 @@ fun Date.toKotlinInstant(): Instant
 // Java.Time
 fun java.time.Instant.toKotlinInstant(): Instant
 ```
+
+2024-11-27
+----------
+
+Getting back to the question of how/whether to expose the historical data
+from our timezone database.
+
+Just `List<UtcOffset>` + `List<Instant>` (the way historical tzdb data is stored
+internally) is likely to be hostile to the users, as this requires doing a
+binary search, an advanced technique stumping a CS freshman and a seasoned
+CRUD developer alike.
+
+Let's look through `nextDaylightSavingTimeTransition` usages.
+
+First, Stack Overflow.
+
+* <https://stackoverflow.com/questions/27053135/how-to-get-a-users-time-zone/27053592#27053592>
+  <https://stackoverflow.com/questions/36152453/notifying-timezone-change-to-an-ios-app/36152689#36152689>
+  the mention is irrelevant to the posed question.
+* <https://stackoverflow.com/questions/15473801/find-dst-daylight-savings-time-timestamp-using-objective-c-c/15474051#15474051>
+  asks for the day DST begins/ends.
+* <https://stackoverflow.com/questions/8923383/checking-whether-the-daylight-savings-time-is-in-effect/8925488#8925488>
+  wants to know if DST changes ever happen in a given timezone.
+* <https://stackoverflow.com/questions/39250516/how-to-create-nsdate-that-will-be-in-dst-mode>
+  wants to determine the closest date that's in DST (which could be today).
+* <https://stackoverflow.com/questions/28438156/incorrect-time-string-with-nsdateformatter-with-daylight-saving-time/28448535#28448535>
+  finally, a specific use case!
+  The user wants to test that their code works properly when a DST transition
+  happens, so they ask for the subsequent transitions to check if their code is
+  future-proof.
+* <https://stackoverflow.com/questions/15567706/gmt-offset-for-date-in-objective-c/15596400#15596400>
+  wants to know the UTC offset at a given date, without a time component.
+  This question betrays weak understanding of how DST transitions work.
+* <https://stackoverflow.com/questions/35623045/equivalent-to-msdn-time-zone-information-struct-in-osx/35624104#35624104>
+  the horror: the user needs to serialize timezone information as the Windows
+  registry timezone structure.
+  Funnily enough, `kotlinx-datetime` has enough data for this almost everywhere
+  (JS and Wasm/JS being the exceptions, as they don't expose the timezone
+  transition rules).
+* <https://stackoverflow.com/questions/77562978/posix-timezone-string-from-swift-timezone>
+  <https://stackoverflow.com/questions/69304093/how-can-i-get-gnu-lib-c-tz-format-output-from-nstimezone/69322356#69322356>
+  is similar to the last one: it attempts to recreate a POSIX time zone string
+  from `nextDaylightSavingTimeTransition`.
+* <https://stackoverflow.com/questions/68334259/how-can-i-find-all-the-historical-offset-transition-dates-for-a-timezone/68334260#68334260>
+  this is about an attempt to make a timezone browser.
+  In my opinion, when writing such a thing, you're best off completely
+  ignoring the platform you have an vendoring the tzdb.
+  Probably even parsing the raw data on your own, as some things are lost in
+  translation.
+* <https://stackoverflow.com/questions/56752467/ios-get-time-zone-string-without-dst-offset>
+  wants to obtain the standard offset for a timezone, I guess.
+
+Now for <https://grep.app/>... Well, not much to say: as of writing,
+<https://grep.app/search?q=.nextDaylightSavingTimeTransition> only surfaces some
+test code. Looks like this functionality is deeply niche.
+
+Hopefully, Java.Time API analysis will be more conclusive.
+But this will have to wait: a design meeting about moving
+`kotlinx.datetime.Instant` to `kotlin.time.Instant` is about to start.
+
+2025-01-07
+----------
+
+Back from the New-Year vacation.
+
+Let's start with going through my e-mails.
+
+<https://github.com/Kotlin/kotlinx-datetime/discussions/237#discussioncomment-11698546>
+seems like a pure case of tech support.
+
+<https://youtrack.jetbrains.com/issue/KT-74111> this is trickier.
+My initial impulse is to unassign myself from the issue, as
+`kotlin.coroutines.intrinsics.CoroutineSingletons`, the source of the crash, has
+nothing to do with our library. The original poster also believes the library is
+not at fault. Let's simplify the work of the compiler people,
+though, and provide a reproducer independent of the library.
+
+```kotlin
+import kotlinx.coroutines.delay
+
+suspend fun main() {
+    crash(item = Test())
+}
+
+
+class Test {
+    suspend operator fun invoke(): Int {
+        delay(10)
+        return 1
+    }
+}
+
+private suspend inline fun crash(item: Test) {
+    println(item())
+}
+```
+
+This only has one `kotlinx.coroutines` method, and a fairly simple on at that.
+
+Stage two: replacing `delay` with its definition and simplifying it to use as
+little of the coroutines machinery as possible.
+
+```kotlin
+suspend fun main() {
+    crash(item = Test())
+}
+
+
+class Test {
+    suspend operator fun invoke(): Int {
+        suspendCancellableCoroutine sc@ { cont: CancellableContinuation<Unit> ->
+            thread {
+                cont.resumeWith(Result.success(Unit))
+            }
+        }
+        return 1
+    }
+}
+
+private suspend inline fun crash(item: Test) {
+    println(item())
+}
+```
+
+Now, there is still only one method, and it's `suspendCancellableCoroutine`.
+Let's replace it with its definition as well.
+
+Ok, done.
+
+<https://github.com/Kotlin/kotlinx.coroutines/issues/2455#issuecomment-2569770713>
+should be an easy "bug"fix.
+
+<https://youtrack.jetbrains.com/issue/KT-73919> no idea what to do about this,
+the issue is too fuzzy. I've tried to answer to the best interpretation of the
+question, but you never know.
+
+I got a spam report!
+<https://github.com/Kotlin/kotlinx.coroutines/discussions/4315>
+Sure does look non-actionable.
+
+<https://github.com/Kotlin/kotlinx.coroutines/pull/4320> looks like it can be
+reviewed quickly. I'll keep the tab open and go back to it when I'm done
+processing the correspondence.
+
+Alright, now I need to go through the things that don't end up in my e-mail:
+GitHub notifications about newly opened issues or comments for
+`kotlinx-datetime` and `kotlinx.coroutines` issues I haven't subscribed to.
+
+<https://github.com/Kotlin/kotlinx-datetime/issues/468> is a feature request
+that doesn't explain how the feature would help with expressing the business
+requirements.
+
+<https://github.com/Kotlin/kotlinx.coroutines/issues/4322> is a very tricky
+problem that is a restatement of the fact that `SharedFlow` and `StateFlow` do
+not meaningfully react to their scope being cancelled.
+After much research and deliberation, I did find an answer I can stand behind:
+<https://github.com/Kotlin/kotlinx.coroutines/issues/4322#issuecomment-2574897582>
+
+Then there are requests like this
+<https://github.com/Kotlin/kotlinx.coroutines/issues/4319> that don't provide
+enough information about a "bug" and leave you guessing what went wrong.
+Each such request takes 20+ minutes to process: you have to clean up the code
+(make it runnable), try out inserting various missing pieces to reproduce the
+issue, and if you think there's a real bug hiding there, you also spend some
+time guessing what could have gone wrong.
+
+<https://github.com/Kotlin/kotlinx.coroutines/pull/4314> this looks like the
+same kind of nonsense initially: ok, we compile a module-info file twice,
+so what?
+After looking at
+<https://repo1.maven.org/maven2/org/jetbrains/kotlinx/kotlinx-coroutines-debug/1.10.1/kotlinx-coroutines-debug-1.10.1.jar>
+to make sure, I notice that there are *two files with the same name* in the jar:
+```
+2024-12-20 15:12:38 .....          542          305  META-INF/versions/9/module-info.class
+2024-12-20 15:12:38 .....          542          305  META-INF/versions/9/module-info.class
+```
+This *is* nonsense, but the poster seems entirely correct:
+there is some sort of conflict involved here.
+After the proposed fix, the zip file indeed only contains a single entry.
+
+<https://github.com/Kotlin/kotlinx.coroutines/pull/4312> it's always painful to
+close PRs that clearly took some effort, so it's always preferred to file an
+issue first. This PR is good, but the set of compromises it proposes seems like
+it could be improved on after a discussion.
+
+<https://github.com/Kotlin/kotlinx.coroutines/issues/4316> it's not painful to
+close issues related to the IDE problems, as I'm pretty certain opening a new
+issue on YouTrack is the optimal course of action. I could open an issue on the
+user's behalf (and sometimes I do when the full information is provided, but
+people who go to https://github.com/Kotlin/kotlinx.coroutines/issues to complain
+about IDE issues are often novice programmers and don't do that), but the user
+still has to register on YouTrack to subscribe to that issue.
+
+... modulo small things, I think I'm done reading through the two-week backlog
+of notifications. Only kotlinlang.slack.com is remaining.
+For now, I'll review <https://github.com/Kotlin/kotlinx.coroutines/pull/4320>.
