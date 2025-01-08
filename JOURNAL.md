@@ -10323,3 +10323,43 @@ still has to register on YouTrack to subscribe to that issue.
 ... modulo small things, I think I'm done reading through the two-week backlog
 of notifications. Only kotlinlang.slack.com is remaining.
 For now, I'll review <https://github.com/Kotlin/kotlinx.coroutines/pull/4320>.
+
+2025-01-08
+----------
+
+Ok, I've read through all of the correspondence, am done with the tech support
+chores, and am ready to do some productive work.
+
+Starting small, with some documentation improvements:
+<https://github.com/Kotlin/kotlinx-datetime/pull/470>
+
+Then, almost as small, with error message improvements:
+<https://github.com/Kotlin/kotlinx-datetime/issues/471>
+Well, this is a problem as big or small as we want it to be.
+
+The issue is: when formatting something, we optimistically assume that the
+required fields are all there, and if not, throw an exception with just the
+name of the field as seen in our Kotlin code. For trivial things like
+`hour`, this works well. You try to format a `DateTimeComponents` object, but
+get "Field `hour` is not set"? Well, you know what you should do.
+
+An obvious thing to do is to rename all fields in our code to match the
+user-visible field names, and also to check for this.
+This is a good first step and is well worth taking:
+<https://github.com/Kotlin/kotlinx-datetime/pull/472>
+There is an architectural problem hiding underneath, though.
+For no reason at all, formatting `LocalTime` with our formatting API has to
+copy all fields into another data structure with nullable fields, and for every
+field access, to branch on whether it's actually `null`. While `null` checks are
+*maybe* not a huge issue (everything is nullable on the JVM, so it has to check
+for `null` on the field access in any scenario), copying is entirely
+unnecessary.
+
+I get an outline of a better solution: make nullability of fields a
+responsibility of the entity that's being formatted; for normal domain objects
+like `LocalTime`, just expose a non-nullable field, whereas for
+`DateTimeComponents`, expose a view of it that promises non-nullable values and
+throws a readable, meaningful error if the field actually is `null`. This would
+give us more flexibility: we would be able to say things like
+`The field 'hourOfAmPm' is not set. Note that setting the field 'hour' does not set 'hourOfAmPm' automatically.`
+without breaking the separation of concerns.
