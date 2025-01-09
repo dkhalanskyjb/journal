@@ -10363,3 +10363,177 @@ throws a readable, meaningful error if the field actually is `null`. This would
 give us more flexibility: we would be able to say things like
 `The field 'hourOfAmPm' is not set. Note that setting the field 'hour' does not set 'hourOfAmPm' automatically.`
 without breaking the separation of concerns.
+
+Oh, cool, the CI broke on Windows.
+
+```
+kotlin.AssertionError: Expected 2029-03-31T22:59:59.998, got 2029-03-31T21:59:59.998 in zone Greenland Standard Time at 2029-04-01T00:59:59.998Z (our guess at the offset is -03:00).
+The rules are -03:00 until 2004-03-28T01:00:00Z, -02:00 until 2004-10-31T01:00:00Z, -03:00 until 2005-03-27T01:00:00Z, -02:00 until 2005-10-30T01:00:00Z, -03:00 until 2006-03-26T01:00:00Z, -02:00 until 2006-10-29T01:00:00Z, -03:00 until 2007-03-25T01:00:00Z, -02:00 until 2007-10-28T01:00:00Z, -03:00 until 2008-03-30T01:00:00Z, -02:00 until 2008-10-26T01:00:00Z, -03:00 until 2009-03-29T01:00:00Z, -02:00 until 2009-10-25T01:00:00Z, -03:00 until 2010-03-28T01:00:00Z, -02:00 until 2010-10-31T01:00:00Z, -03:00 until 2011-03-27T01:00:00Z, -02:00 until 2011-10-30T01:00:00Z, -03:00 until 2012-03-25T01:00:00Z, -02:00 until 2012-10-28T01:00:00Z, -03:00 until 2013-03-31T01:00:00Z, -02:00 until 2013-10-27T01:00:00Z, -03:00 until 2014-03-30T01:00:00Z, -02:00 until 2014-10-26T01:00:00Z, -03:00 until 2015-03-29T01:00:00Z, -02:00 until 2015-10-25T01:00:00Z, -03:00 until 2016-03-27T01:00:00Z, -02:00 until 2016-10-30T01:00:00Z, -03:00 until 2017-03-26T01:00:00Z, -02:00 until 2017-10-29T01:00:00Z, -03:00 until 2018-03-25T01:00:00Z, -02:00 until 2018-10-28T01:00:00Z, -03:00 until 2019-03-31T01:00:00Z, -02:00 until 2019-10-27T01:00:00Z, -03:00 until 2020-03-29T01:00:00Z, -02:00 until 2020-10-25T01:00:00Z, -03:00 until 2021-03-28T01:00:00Z, -02:00 until 2021-10-31T01:00:00Z, -03:00 until 2022-03-27T01:00:00Z, -02:00 until 2022-10-30T01:00:00Z, -03:00 until 2023-03-26T01:00:00Z, -02:00 until 2023-10-29T01:00:00Z, -03:00 until 2024-03-31T01:00:00Z, -02:00 until 2024-10-27T01:00:00Z, -03:00 until 2025-03-30T01:00:00Z, -02:00 until 2025-10-26T01:00:00Z, -03:00 until 2026-03-29T01:00:00Z, -02:00 until 2026-10-25T01:00:00Z, -03:00 until 2027-01-01T03:00:00Z, then -03:00, after that transitioning from -03:00 to -02:00 on MARCH, the last SATURDAY, 22:00, wall clock offset, transitioning from -02:00 to -03:00 on OCTOBER, the last SATURDAY, 23:00, wall clock offset, and the offsets throughout the year according to Windows are: [(2029-01-01, -10800), (2029-01-02, -10800), (2029-01-03, -10800), (2029-01-04, -10800), (2029-01-05, -10800), (2029-01-06, -10800), (2029-01-07, -10800), (2029-01-08, -10800), (2029-01-09, -10800), (2029-01-10, -10800), (2029-01-11, -10800), (2029-01-12, -10800), (2029-01-13, -10800), (2029-01-14, -10800), (2029-01-15, -10800), (2029-01-16, -10800), (2029-01-17, -10800), (2029-01-18, -10800), (2029-01-19, -10800), (2029-01-20, -10800), (2029-01-21, -10800), (2029-01-22, -10800), (2029-01-23, -10800), (2029-01-24, -10800), (2029-01-25, -10800), (2029-01-26, -10800), (2029-01-27, -10800), (2029-01-28, -10800), (2029-01-29, -10800), (2029-01-30, -10800), (2029-01-31, -10800), (2029-02-01, -10800), (2029-02-02, -10800), (2029-02-03, -10800), (2029-02-04, -10800), (2029-02-05, -10800), (2029-02-06, -10800), (2029-02-07, -10800), (2029-02-08, -10800), (2029-02-09, -10800), (2029-02-10, -10800), (2029-02-11, -10800), (2029-02-12, -10800), (2029-02-13, -10800), (2029-02-14, -10800), (2029-02-15, -10800), (2029-02-16, -10800), (2029-02-17, -10800), (2029-02-18, -10800), (2029-02-19, -10800), (2029-02-20, -10800), (2029-02-21, -10800), (2029-02-22, -10800), (2029-02-23, -10800), (2029-02-24, -10800), (2029-02-25, -10800), (2029-02-26, -10800), (2029-02-27, -10800), (2029-02-28, -10800), (2029-03-01, -10800), (2029-03-02, -10800), (2029-03-03, -10800), (2029-03-04, -10800), (2029-03-05, -10800), (2029-03-06, -10800), (2029-03-07, -10800), (2029-03-08, -10800), (2029-03-09, -10800), (2029-03-10, -10800), (2029-03-11, -10800), (2029-03-12, -10800), (2029-03-13, -10800), (2029-03-14, -10800), (2029-03-15, -10800), (2029-03-16, -10800), (2029-03-17, -10800), (2029-03-18, -10800), (2029-03-19, -10800), (2029-03-20, -10800), (2029-03-21, -10800), (2029-03-22, -10800), (2029-03-23, -10800), (2029-03-24, -10800), (2029-03-25, -10800), (2029-03-26, -7200), (2029-03-27, -7200), (2029-03-28, -7200), (2029-03-29, -7200), (2029-03-30, -7200), (2029-03-31, -7200), (2029-04-01, -7200), (2029-04-02, -7200), (2029-04-03, -7200), (2029-04-04, -7200), (2029-04-05, -7200), (2029-04-06, -7200), (2029-04-07, -7200), (2029-04-08, -7200), (2029-04-09, -7200), (2029-04-10, -7200), (2029-04-11, -7200), (2029-04-12, -7200), (2029-04-13, -7200), (2029-04-14, -7200), (2029-04-15, -7200), (2029-04-16, -7200), (2029-04-17, -7200), (2029-04-18, -7200), (2029-04-19, -7200), (2029-04-20, -7200), (2029-04-21, -7200), (2029-04-22, -7200), (2029-04-23, -7200), (2029-04-24, -7200), (2029-04-25, -7200), (2029-04-26, -7200), (2029-04-27, -7200), (2029-04-28, -7200), (2029-04-29, -7200), (2029-04-30, -7200), (2029-05-01, -7200), (2029-05-02, -7200), (2029-05-03, -7200), (2029-05-04, -7200), (2029-05-05, -7200), (2029-05-06, -7200), (2029-05-07, -7200), (2029-05-08, -7200), (2029-05-09, -7200), (2029-05-10, -7200), (2029-05-11, -7200), (2029-05-12, -7200), (2029-05-13, -7200), (2029-05-14, -7200), (2029-05-15, -7200), (2029-05-16, -7200), (2029-05-17, -7200), (2029-05-18, -7200), (2029-05-19, -7200), (2029-05-20, -7200), (2029-05-21, -7200), (2029-05-22, -7200), (2029-05-23, -7200), (2029-05-24, -7200), (2029-05-25, -7200), (2029-05-26, -7200), (2029-05-27, -7200), (2029-05-28, -7200), (2029-05-29, -7200), (2029-05-30, -7200), (2029-05-31, -7200), (2029-06-01, -7200), (2029-06-02, -7200), (2029-06-03, -7200), (2029-06-04, -7200), (2029-06-05, -7200), (2029-06-06, -7200), (2029-06-07, -7200), (2029-06-08, -7200), (2029-06-09, -7200), (2029-06-10, -7200), (2029-06-11, -7200), (2029-06-12, -7200), (2029-06-13, -7200), (2029-06-14, -7200), (2029-06-15, -7200), (2029-06-16, -7200), (2029-06-17, -7200), (2029-06-18, -7200), (2029-06-19, -7200), (2029-06-20, -7200), (2029-06-21, -7200), (2029-06-22, -7200), (2029-06-23, -7200), (2029-06-24, -7200), (2029-06-25, -7200), (2029-06-26, -7200), (2029-06-27, -7200), (2029-06-28, -7200), (2029-06-29, -7200), (2029-06-30, -7200), (2029-07-01, -7200), (2029-07-02, -7200), (2029-07-03, -7200), (2029-07-04, -7200), (2029-07-05, -7200), (2029-07-06, -7200), (2029-07-07, -7200), (2029-07-08, -7200), (2029-07-09, -7200), (2029-07-10, -7200), (2029-07-11, -7200), (2029-07-12, -7200), (2029-07-13, -7200), (2029-07-14, -7200), (2029-07-15, -7200), (2029-07-16, -7200), (2029-07-17, -7200), (2029-07-18, -7200), (2029-07-19, -7200), (2029-07-20, -7200), (2029-07-21, -7200), (2029-07-22, -7200), (2029-07-23, -7200), (2029-07-24, -7200), (2029-07-25, -7200), (2029-07-26, -7200), (2029-07-27, -7200), (2029-07-28, -7200), (2029-07-29, -7200), (2029-07-30, -7200), (2029-07-31, -7200), (2029-08-01, -7200), (2029-08-02, -7200), (2029-08-03, -7200), (2029-08-04, -7200), (2029-08-05, -7200), (2029-08-06, -7200), (2029-08-07, -7200), (2029-08-08, -7200), (2029-08-09, -7200), (2029-08-10, -7200), (2029-08-11, -7200), (2029-08-12, -7200), (2029-08-13, -7200), (2029-08-14, -7200), (2029-08-15, -7200), (2029-08-16, -7200), (2029-08-17, -7200), (2029-08-18, -7200), (2029-08-19, -7200), (2029-08-20, -7200), (2029-08-21, -7200), (2029-08-22, -7200), (2029-08-23, -7200), (2029-08-24, -7200), (2029-08-25, -7200), (2029-08-26, -7200), (2029-08-27, -7200), (2029-08-28, -7200), (2029-08-29, -7200), (2029-08-30, -7200), (2029-08-31, -7200), (2029-09-01, -7200), (2029-09-02, -7200), (2029-09-03, -7200), (2029-09-04, -7200), (2029-09-05, -7200), (2029-09-06, -7200), (2029-09-07, -7200), (2029-09-08, -7200), (2029-09-09, -7200), (2029-09-10, -7200), (2029-09-11, -7200), (2029-09-12, -7200), (2029-09-13, -7200), (2029-09-14, -7200), (2029-09-15, -7200), (2029-09-16, -7200), (2029-09-17, -7200), (2029-09-18, -7200), (2029-09-19, -7200), (2029-09-20, -7200), (2029-09-21, -7200), (2029-09-22, -7200), (2029-09-23, -7200), (2029-09-24, -7200), (2029-09-25, -7200), (2029-09-26, -7200), (2029-09-27, -7200), (2029-09-28, -7200), (2029-09-29, -7200), (2029-09-30, -7200), (2029-10-01, -7200), (2029-10-02, -7200), (2029-10-03, -7200), (2029-10-04, -7200), (2029-10-05, -7200), (2029-10-06, -7200), (2029-10-07, -7200), (2029-10-08, -7200), (2029-10-09, -7200), (2029-10-10, -7200), (2029-10-11, -7200), (2029-10-12, -7200), (2029-10-13, -7200), (2029-10-14, -7200), (2029-10-15, -7200), (2029-10-16, -7200), (2029-10-17, -7200), (2029-10-18, -7200), (2029-10-19, -7200), (2029-10-20, -7200), (2029-10-21, -7200), (2029-10-22, -7200), (2029-10-23, -7200), (2029-10-24, -7200), (2029-10-25, -7200), (2029-10-26, -7200), (2029-10-27, -7200), (2029-10-28, -7200), (2029-10-29, -10800), (2029-10-30, -10800), (2029-10-31, -10800), (2029-11-01, -10800), (2029-11-02, -10800), (2029-11-03, -10800), (2029-11-04, -10800), (2029-11-05, -10800), (2029-11-06, -10800), (2029-11-07, -10800), (2029-11-08, -10800), (2029-11-09, -10800), (2029-11-10, -10800), (2029-11-11, -10800), (2029-11-12, -10800), (2029-11-13, -10800), (2029-11-14, -10800), (2029-11-15, -10800), (2029-11-16, -10800), (2029-11-17, -10800), (2029-11-18, -10800), (2029-11-19, -10800), (2029-11-20, -10800), (2029-11-21, -10800), (2029-11-22, -10800), (2029-11-23, -10800), (2029-11-24, -10800), (2029-11-25, -10800), (2029-11-26, -10800), (2029-11-27, -10800), (2029-11-28, -10800), (2029-11-29, -10800), (2029-11-30, -10800), (2029-12-01, -10800), (2029-12-02, -10800), (2029-12-03, -10800), (2029-12-04, -10800), (2029-12-05, -10800), (2029-12-06, -10800), (2029-12-07, -10800), (2029-12-08, -10800), (2029-12-09, -10800), (2029-12-10, -10800), (2029-12-11, -10800), (2029-12-12, -10800), (2029-12-13, -10800), (2029-12-14, -10800), (2029-12-15, -10800), (2029-12-16, -10800), (2029-12-17, -10800), (2029-12-18, -10800), (2029-12-19, -10800), (2029-12-20, -10800), (2029-12-21, -10800), (2029-12-22, -10800), (2029-12-23, -10800), (2029-12-24, -10800), (2029-12-25, -10800), (2029-12-26, -10800), (2029-12-27, -10800), (2029-12-28, -10800), (2029-12-29, -10800), (2029-12-30, -10800), (2029-12-31, -10800)]; the raw data for the recurring rules is b400000000000000c4ffffff00000a0006000500170000000000000000000300060005001600000000000000
+```
+
+I'll have to look into this. So far, Windows support was the most problematic
+among all Native targets for both `kotlinx-datetime` (where it's exposing an
+unrealiable timezone database that also seems to have some hidden rules not
+fully expressed in the registry contents and not accessible by any other means)
+and `kotlinx.coroutines` (where its thread scheduling is so unreliable that our
+tests that check the relationship between our time-based functions like
+`withTimeout` and real time will often fail even if we do add generous leeway).
+
+Ok, so the transition according to Windows has happened somewhere around
+2029-03-25; the rules state (I'll double-check what the registry says exactly)
+that it's the last Saturday of March that has the transition... so, the
+31st of March in 2029. It also looks like our algorithm worked fine for 2028.
+Is this yet another magical special case?
+
+Ok, let's read the string from the registry and double-check it with the docs.
+`b400000000000000c4ffffff00000a0006000500170000000000000000000300060005001600000000000000`
+should be interpreted as `REG_TZI_FORMAT`
+(see <https://learn.microsoft.com/en-us/windows/win32/api/timezoneapi/ns-timezoneapi-time_zone_information>)...
+You know, screw this, I'm doing this a couple of times per month at this point,
+I could automate this.
+
+```haskell
+{-# LANGUAGE RecordWildCards #-}
+import Control.Monad.State
+import Data.Word
+import Data.Int
+
+data SystemTime = SystemTime
+                { year :: Word16
+                , month :: Word16
+                , dayOfWeek :: Word16
+                , day :: Word16
+                , hour :: Word16
+                , minute :: Word16
+                , second :: Word16
+                , millisecond :: Word16
+                } deriving Show
+
+data RegTziFormat = RegTziFormat
+                  { bias :: Int32
+                  , standardBias :: Int32
+                  , daylightBias :: Int32
+                  , standardDate :: SystemTime
+                  , daylightDate :: SystemTime
+                  } deriving Show
+
+parseRegTziFormat :: String -> RegTziFormat
+parseRegTziFormat = evalState $ do
+                       bias <- parseLong
+                       standardBias <- parseLong
+                       daylightBias <- parseLong
+                       standardDate <- parseSystemTime
+                       daylightDate <- parseSystemTime
+                       pure $ RegTziFormat { .. }
+  where parseNBytes n = read . ("0x" ++) . fixEndianness <$> state (splitAt (2 * n))
+        fixEndianness = concat . reverse . groupBy2
+        groupBy2 [] = []
+        groupBy2 (a:b:xs) = [a, b] : groupBy2 xs
+        parseLong :: State String Int32 
+        parseLong = parseNBytes 4
+        parseWord :: State String Word16
+        parseWord = parseNBytes 2
+        parseSystemTime = do year <- parseWord
+                             month <- parseWord
+                             dayOfWeek <- parseWord
+                             day <- parseWord
+                             hour <- parseWord
+                             minute <- parseWord
+                             second <- parseWord
+                             millisecond <- parseWord
+                             pure $ SystemTime { .. }
+```
+
+The output:
+
+```
+parseRegTziFormat "b400000000000000c4ffffff00000a0006000500170000000000000000000300060005001600000000000000"
+RegTziFormat {bias = 180, standardBias = 0, daylightBias = -60, standardDate = SystemTime {year = 0, month = 10, dayOfWeek = 6, day = 5, hour = 23, minute = 0, second = 0, millisecond = 0}, daylightDate = SystemTime {year = 0, month = 3, dayOfWeek = 6, day = 5, hour = 22, minute = 0, second = 0, millisecond = 0}}
+```
+
+:shrug:
+
+2025-01-09
+----------
+
+Have spent most of the morning writing this:
+<https://github.com/Kotlin/kotlinx-datetime/issues/325#issuecomment-2579629809>
+
+After rereading the original attempt to translate Joda code to
+`kotlinx-datetime`, I've decided to return to a pet peeve of mine and finally
+file
+<https://youtrack.jetbrains.com/issue/KT-74317/Deprecate-Duration.Companion.days-and-Duration.inWholeDays>
+
+After that, I rewrote the test for the Windows registry data so that it emits
+the information about all timezones and years that don't match instead of
+stopping at the first mismatch; I've also compacted the error output format
+so that there is less to parse with your eyes:
+<https://github.com/Kotlin/kotlinx-datetime/commit/1e339e7f155d0451203721efb62a4ab77db4583d>.
+This should allow us to see the bigger picture of the incompatibility.
+The code is very sloppy, but so far, the reason this test has failed was not
+the code quality but always some strange Windows behavior.
+
+<https://github.com/Kotlin/kotlinx-datetime/commit/fefe3e7c898a44f9027e3d54341ebf9ba02e0d45>
+is an attempt to implement Ilya's suggestion at
+<https://github.com/Kotlin/kotlinx-datetime/issues/440#issuecomment-2445694279>.
+The last time I tried this, I observed a failure. Let's dig in.
+
+Only one timezone is broken!
+
+```kotlin
+IncompatibilityWithWindowsRegistry(
+  timeZoneName=Central Brazilian Standard Time,
+  dataOnAffectedYears=[Overlap(start=1971-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1971-11-02T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1972-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1972-11-07T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1973-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1973-11-06T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1974-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1974-11-05T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1975-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1975-11-04T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1977-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1977-11-01T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1978-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1978-11-07T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1979-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1979-11-06T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1980-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1980-11-04T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1982-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1982-11-02T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1983-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1983-11-01T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1984-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1984-11-06T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1985-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1985-11-05T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1986-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1986-11-04T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1988-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1988-11-01T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1989-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1989-11-07T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1990-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1990-11-06T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1991-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1991-11-05T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1992-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1992-11-03T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1993-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1993-11-02T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1994-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1994-11-01T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1995-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1995-11-07T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1996-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1996-11-05T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1997-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1997-11-04T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=1999-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=1999-11-02T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=2000-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=2000-11-07T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=2001-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=2001-11-06T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=2002-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=2002-11-05T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00), Overlap(start=2003-01-01T03:00:00.000712539Z, offsetBefore=-03:00, offsetAfter=-04:00), Gap(start=2003-11-04T04:00:00.000859268Z, offsetBefore=-04:00, offsetAfter=-03:00)],
+  registryData=f000000000000000c4ffffff0000000000000000000000000000000000000000000000000000000000000000,
+  mismatches=[Mismatch(ourGuess=1971-01-06T23:59:59.998, windowsGuess=1971-01-06T22:59:59.998, instant=1971-01-07T02:59:59.998Z), Mismatch(ourGuess=1972-01-05T23:59:59.998, windowsGuess=1972-01-05T22:59:59.998, instant=1972-01-06T02:59:59.998Z), Mismatch(ourGuess=1973-01-03T23:59:59.998, windowsGuess=1973-01-03T22:59:59.998, instant=1973-01-04T02:59:59.998Z), Mismatch(ourGuess=1974-01-02T23:59:59.998, windowsGuess=1974-01-02T22:59:59.998, instant=1974-01-03T02:59:59.998Z), Mismatch(ourGuess=1975-01-01T23:59:59.998, windowsGuess=1975-01-01T22:59:59.998, instant=1975-01-02T02:59:59.998Z), Mismatch(ourGuess=1977-01-05T23:59:59.998, windowsGuess=1977-01-05T22:59:59.998, instant=1977-01-06T02:59:59.998Z), Mismatch(ourGuess=1978-01-04T23:59:59.998, windowsGuess=1978-01-04T22:59:59.998, instant=1978-01-05T02:59:59.998Z), Mismatch(ourGuess=1979-01-03T23:59:59.998, windowsGuess=1979-01-03T22:59:59.998, instant=1979-01-04T02:59:59.998Z), Mismatch(ourGuess=1980-01-02T23:59:59.998, windowsGuess=1980-01-02T22:59:59.998, instant=1980-01-03T02:59:59.998Z), Mismatch(ourGuess=1982-01-06T23:59:59.998, windowsGuess=1982-01-06T22:59:59.998, instant=1982-01-07T02:59:59.998Z), Mismatch(ourGuess=1983-01-05T23:59:59.998, windowsGuess=1983-01-05T22:59:59.998, instant=1983-01-06T02:59:59.998Z), Mismatch(ourGuess=1984-01-04T23:59:59.998, windowsGuess=1984-01-04T22:59:59.998, instant=1984-01-05T02:59:59.998Z), Mismatch(ourGuess=1985-01-02T23:59:59.998, windowsGuess=1985-01-02T22:59:59.998, instant=1985-01-03T02:59:59.998Z), Mismatch(ourGuess=1986-01-01T23:59:59.998, windowsGuess=1986-01-01T22:59:59.998, instant=1986-01-02T02:59:59.998Z), Mismatch(ourGuess=1988-01-06T23:59:59.998, windowsGuess=1988-01-06T22:59:59.998, instant=1988-01-07T02:59:59.998Z), Mismatch(ourGuess=1989-01-04T23:59:59.998, windowsGuess=1989-01-04T22:59:59.998, instant=1989-01-05T02:59:59.998Z), Mismatch(ourGuess=1990-01-03T23:59:59.998, windowsGuess=1990-01-03T22:59:59.998, instant=1990-01-04T02:59:59.998Z), Mismatch(ourGuess=1991-01-02T23:59:59.998, windowsGuess=1991-01-02T22:59:59.998, instant=1991-01-03T02:59:59.998Z), Mismatch(ourGuess=1992-01-01T23:59:59.998, windowsGuess=1992-01-01T22:59:59.998, instant=1992-01-02T02:59:59.998Z), Mismatch(ourGuess=1993-01-06T23:59:59.998, windowsGuess=1993-01-06T22:59:59.998, instant=1993-01-07T02:59:59.998Z), Mismatch(ourGuess=1994-01-05T23:59:59.998, windowsGuess=1994-01-05T22:59:59.998, instant=1994-01-06T02:59:59.998Z), Mismatch(ourGuess=1995-01-04T23:59:59.998, windowsGuess=1995-01-04T22:59:59.998, instant=1995-01-05T02:59:59.998Z), Mismatch(ourGuess=1996-01-03T23:59:59.998, windowsGuess=1996-01-03T22:59:59.998, instant=1996-01-04T02:59:59.998Z), Mismatch(ourGuess=1997-01-01T23:59:59.998, windowsGuess=1997-01-01T22:59:59.998, instant=1997-01-02T02:59:59.998Z), Mismatch(ourGuess=1999-01-06T23:59:59.998, windowsGuess=1999-01-06T22:59:59.998, instant=1999-01-07T02:59:59.998Z), Mismatch(ourGuess=2000-01-05T23:59:59.998, windowsGuess=2000-01-05T22:59:59.998, instant=2000-01-06T02:59:59.998Z), Mismatch(ourGuess=2001-01-03T23:59:59.998, windowsGuess=2001-01-03T22:59:59.998, instant=2001-01-04T02:59:59.998Z), Mismatch(ourGuess=2002-01-02T23:59:59.998, windowsGuess=2002-01-02T22:59:59.998, instant=2002-01-03T02:59:59.998Z), Mismatch(ourGuess=2003-01-01T23:59:59.998, windowsGuess=2003-01-01T22:59:59.998, instant=2003-01-02T02:59:59.998Z)]
+)
+```
+
+What this means:
+
+```
+Year | Windows transition | Our transition
+1971 | 1971-01-01T00:00   | 1971-01-07T00:00
+1972 | 1972-01-01T00:00   | 1972-01-06T00:00
+1973 | 1973-01-01T00:00   | 1973-01-04T00:00
+1974 | 1974-01-01T00:00   | 1974-01-03T00:00
+1975 | 1975-01-01T00:00   | 1975-01-02T00:00
+1976 | no errors          | no errors
+1977 | 1977-01-01T00:00   | 1977-01-06T00:00
+```
+
+So, the error is that we assume the transition happens at midnight on the
+first Thursday of January, but Windows claims the transition is on the
+1st of January, and in 1976, this happens to be the same day?..
+
+Let's see what the registry holds in the first entry for this time zone.
+
+```haskell
+parseRegTziFormat "f000000000000000c4ffffff0000010004000100000000000000000000000b00020001000000000000000000"
+RegTziFormat {bias = 240, standardBias = 0, daylightBias = -60
+  , standardDate = SystemTime {year = 0, month = 1, dayOfWeek = 4, day = 1, hour = 0, minute = 0, second = 0, millisecond = 0}
+  , daylightDate = SystemTime {year = 0, month = 11, dayOfWeek = 2, day = 1, hour = 0, minute = 0, second = 0, millisecond = 0}}
+```
+
+These do say that we're interested in the first Thursday, according to the
+interpretation of `StandardDate` at
+<https://learn.microsoft.com/en-us/windows/win32/api/timezoneapi/ns-timezoneapi-dynamic_time_zone_information>.
+
+What about the recurring rules?
+
+```haskell
+parseRegTziFormat "f000000000000000c4ffffff0000000000000000000000000000000000000000000000000000000000000000"
+RegTziFormat {bias = 240, standardBias = 0, daylightBias = -60
+             , standardDate = SystemTime {year = 0, month = 0, dayOfWeek = 0, day = 0, hour = 0, minute = 0, second = 0, millisecond = 0}
+             , daylightDate = SystemTime {year = 0, month = 0, dayOfWeek = 0, day = 0, hour = 0, minute = 0, second = 0, millisecond = 0}}
+```
+
+No, these don't match what's actually happening in Windows, either.
+
+It's unpleasant to have to deal with this nonsense, especially when it doesn't
+match the actual reality: if we are to trust
+<https://en.wikipedia.org/wiki/Daylight_saving_time_in_Brazil>,
+then neither the Windows registry nor the actual behavior of Windows reflects
+the true state of how daylight savings time worked in Brazil.
+So, I'm just going to suppress the error for this time zone in particular.
+
