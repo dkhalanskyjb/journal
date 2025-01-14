@@ -10537,3 +10537,178 @@ then neither the Windows registry nor the actual behavior of Windows reflects
 the true state of how daylight savings time worked in Brazil.
 So, I'm just going to suppress the error for this time zone in particular.
 
+2025-01-13
+----------
+
+Felt sick on Friday and did basically no work.
+
+Today, it's a week of coroutines. I divide my work time into "datetime weeks"
+and "coroutine weeks", and on a week dedicated to a library, I prefer working on
+it. This way, starvation doesn't happen. Before I introduced this scheme, it was
+occasionally the case that I was so engrossed into some big, demanding project
+in one library that the other library got neglected for a couple of months at a
+time, giving the impression that all work has stopped.
+
+Let's start by reviewing
+<https://github.com/Kotlin/kotlinx.coroutines/pull/4327>, which turned out much
+trickier to do correctly than I've assumed.
+
+Next, I'm going to try implementing a Kotlin/Native version of
+`kotlinx.coroutines` that uses
+<https://github.com/Kotlin/kotlinx-atomicfu/pull/498>.
+This could allow `Dispatchers.Default` and `Dispatchers.IO` on Native to use the
+same scheduler that our JVM implementation uses. I'm still not sure if this is
+going to end up in the actual implementation--at least for iOS, which has its
+own threading specifics that are unknown to me--but in any case, this will allow
+us to evaluate the new parking implementation in a more informed way.
+
+2025-01-14
+----------
+
+I received a task to look through the issues relating to IDEA lints
+("inspections") for `kotlinx.coroutines`
+(<https://youtrack.jetbrains.com/issues?q=project:%20KTIJ%20tag:%20coroutine-inspections%20%23Unresolved%20>)
+and decide which of them are useful.
+
+1. <https://youtrack.jetbrains.com/issue/KTIJ-842/Inappropriate-blocking-method-call-with-Reader.ready-method>
+   Did you know that `Reader.ready()` can block? I didn't, but looking at
+   <https://stackoverflow.com/a/8342308>, I got a bad feeling when I saw
+   "I see that the read methods use synchronize and an internal lock object."
+   If the approach taken to internal consistency in `BufferedReader` is locking,
+   then, to avoid parallel `read` calls from accidentally overwriting each
+   other, then they must be mutually exclusive; if they stick everything under
+   one lock, then `ready()` should also be under that lock.
+   And sure enough: <https://pl.kotl.in/WCyUw4a_2>
+   Of course, I can't imagine anyone reading from one `Reader` in multiple
+   threads, so this is not actually an argument for keeping the inspection.
+2. <https://youtrack.jetbrains.com/issue/KTIJ-17625/Inspection-when-a-Flow-from-kotlin.coroutines-is-not-used>
+   sad but true: side effects in lazy sequences don't run unless you collect
+   the sequence.
+3. <https://youtrack.jetbrains.com/issue/KTIJ-17367/Inspect-to-suggest-MutableSharedFlow.asSharedFlow-instead-of-SharedFlow-upcast>
+   I think this proposal is objectively good, but non-Kotlin-idiomatic.
+   As of writing, the `listOf(1, 2, 3) as MutableList<Int>`  cast succeeds and
+   allows modifying the contents.
+   My impression is that it's not Kotlin-idiomatic to worry about the invariants
+   that can be broken when client code downcasts your entity,
+   especially when it costs some characters to type.
+   Though now that I think about this, this can save some characters:
+   ```kotlin
+   // What you have to type in the explicit API mode
+   val state: StateFlow<Int> = _state.asStateFlow()
+   // Before the inspection
+   val state: StateFlow<Int> = _state
+   // After the inspection
+   val state = _state.asStateFlow()
+   ```
+4. <https://youtrack.jetbrains.com/issue/KTIJ-30864/Missed-Possibly-blocking-call-in-non-blocking-context-when-calling-property-setter-annotated-with-Blocking>
+   Uh... what's `@Blocking`?
+   After an Internet search, I see this:
+   <https://discuss.kotlinlang.org/t/mark-function-as-blocking/13768>
+   What? Blocking calls are highlighted in the IDE?
+   <https://discuss.kotlinlang.org/t/mark-function-as-blocking/13768/2>
+   But when I write `runBlocking { Thread.sleep(1000) }`, I get nothing!
+   After some experiments, I did manage to trigger this inspection in the old
+   (non-K2) IDE mode, but only outside of suspend lambdas.
+   Filed <https://youtrack.jetbrains.com/issue/KTIJ-32716/Blocking-calls-not-highlighted-in-suspend-lambdas-K2-or-anywhere>.
+   I wonder how much functionality there really is in the IDE but doesn't work.
+   After traversing some links, I see
+   <https://youtrack.jetbrains.com/issue/KTIJ-27409/False-negative-Possibly-blocking-call-in-non-blocking-context-could-lead-to-thread-starvation-warning-not-applied-to-blocking>
+   Alright, I'm digging too deep. If we just look at the issue I need to sort
+   into the useful/useless buckets, I think this one, as stated, is useless.
+   Setters shouldn't contain blocking code. I don't think any part of our
+   style guide says so, but <https://kotlinlang.org/docs/coding-conventions.html#functions-vs-properties>
+   has things about getters that are similar in spirit.
+5. <https://youtrack.jetbrains.com/issue/KTIJ-19072/Redundant-Async-Call-inspection-should-insert-yield-immediately-after-withContext>
+   I'm not sure what this code is trying to accomplish, but it sure does look
+   scary. In any case, I'm against the proposal: if you write two `suspend`
+   functions, `launch` them separately, and they stop working well together if
+   a couple of suspensions are added or removed, then either you're a
+   `kotlinx.coroutines` author writing a test of the form
+   "unnecessary suspensions don't happen here", or the data flow in your code
+   is fuzzy and ill-defined.
+   Maybe we should have added slight randomization to the order in which
+   `runBlocking` executes its tasks. Everyone would have to learn not to rely
+   on the order in which task interleaving happens.
+   The cost, of course, is that the code would be flaky.
+   What's worse: badly written code that happens to work or badly written code
+   that fails loudly enough that you have no choice but to improve it?
+6. <https://youtrack.jetbrains.com/issue/KTIJ-17464/Warn-on-unstructured-no-CoroutineScope-protection-gap-between-getting-a-future-and-await-call-on-it>
+   From reading this issue, even though it's from Roman, I didn't obtain an
+   understanding of what the fix was supposed to do, so I prepared this
+   text to post as a comment:
+   > I don't understand the proposal. Maybe someone who starred/upvoted the
+   > issue could explain it to me? I get the problem: let's say we have some
+   > asynchronous process that happens outside structured concurrency, and when
+   > structured concurrency asks the process to fail, the process keeps working
+   > (though for ListenableFuture mentioned in the issue, the process would
+   > actually get cancelled: see
+   > <https://kotlinlang.org/api/kotlinx.coroutines/kotlinx-coroutines-guava/kotlinx.coroutines.guava/await.html>).
+   >
+   > How does the proposed solution fix this, though?
+   > * Before the change, the code created by foo() continues executing,
+   >   even though await() throws a CancellationException,
+   >   because no one cancels the future itself,
+   >   only the process of awaiting it is interrupted.
+   > * After the change, the code created by foo() continues executing,
+   >   even though await() throws a CancellationException and the coroutine
+   >   created by async gets cancelled, because, again,
+   >   no one cancels the future itself.
+   > Looking at the proposed solution,
+   > there is one case I can see where the replacement helps:
+   > * fooBar is called in a multithreaded dispatcher,
+   >   so the fooBar body is executed in parallel with the async coroutines
+   >   created there.
+   > * f.await() is actively polling the future, blocking the thread in a
+   >   non-cancellable manner. This is not what happens in the await()
+   >   implementations that I know of: instead,
+   >   they are cancellable and non-blocking.
+   > In this scenario, yes, even though nothing can cancel code that doesn't
+   > participate in cancellation cooperatively
+   > (in this case, the code that's going to put the Int into the Future),
+   > at least the process of waiting for it won't hang.
+   > However, either it's await()'s responsibility to be susceptible to
+   > cancellation (if it's a suspend fun),
+   > or await() is a blocking call and shouldn't be freely called
+   > in suspending code anyway.
+
+   Before posting this, though, I asked `@qwwdfsad` if he understood what the
+   problem and the solution were, and it turns out that yes, there is an obvious
+   thing that I'm missing: if `foo()` creates a `Future`, then
+   code `val v = foo(); something(); v.await()` is incorrect *because* `await()`
+   is the thing that cancels `v`. If `something()` throws an exception, awaiting
+   doesn't happen, and neither does cancellation.
+
+   I'm not convinced this is an IDE inspection problem.
+   I've filed an issue where I explain this:
+   <https://github.com/Kotlin/kotlinx.coroutines/issues/4329>.
+
+Alright, I got tired of sorting through those issues, so I'll take a break and
+go back to <https://github.com/Kotlin/kotlinx.coroutines/pull/4277>.
+The last thing I did before going to the vacation was to finally make that
+PR build. The reason it failed to build was:
+
+* Currently, the thread responsible for processing timers is also responsible
+  for finishing tasks that other dispatchers don't want to do
+  (see https://github.com/Kotlin/kotlinx.coroutines/issues/4262).
+  After my changes, `Dispatchers.IO` will be responsible for that.
+* `Dispatchers.IO` is implemented as `limitedParallelism(64)` over a thread
+  pool shared with `Dispatchers.Default`.
+* Our internal tests close and recreate that shared pool.
+  If new tasks attempt to enter the thread pool while it's closed, an
+  exception is thrown from `fun dispatch`.
+* `limitedParallelism` never considers the possibility that a dispatch can
+  fail. It keeps a counter of workers running on the wrapped dispatcher to
+  ensure that no more extra workers are allocated than there needs to be.
+
+The last piece is problematic.
+I've extracted this idea into a separate PR:
+<https://github.com/Kotlin/kotlinx.coroutines/pull/4330>.
+
+Ok, back to IDE inspections.
+
+7. <https://youtrack.jetbrains.com/issue/KTIJ-14557/Inspection-for-Android-when-using-Dispatchers.Main-without-kotlinx-coroutines-android-dependency>
+   This is somewhat straightforward.
+8. <https://youtrack.jetbrains.com/issue/KTIJ-13441/Suggest-coroutineScope-or-runBlocking-when-trying-to-invoke-coroutine-scope-extension>
+   This is much less straightforward, as the concern is real, but an
+   implementation that suggests automatically introducing `runBlocking` leaves
+   me wary.
