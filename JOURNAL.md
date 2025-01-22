@@ -10712,3 +10712,217 @@ Ok, back to IDE inspections.
    This is much less straightforward, as the concern is real, but an
    implementation that suggests automatically introducing `runBlocking` leaves
    me wary.
+
+2025-01-15
+----------
+
+Ok, back to work.
+
+Another inspection: <https://youtrack.jetbrains.com/issue/KTIJ-20974/Inspection-Possibly-blocking-call-in-non-blocking-context-could-lead-to-thread-starvation-suggests-to-use-.flowOnDispatchers.IO>
+This one is very tricky to get right, but somehow, the IDE managed to do it!
+I didn't really try to break it, but the code I wrote naturally was highlighted
+like I would ideally expect it to.
+
+Looks like I've already looked through the easy ones? Each one is harder to
+judge than the last. <https://youtrack.jetbrains.com/issue/KTIJ-12751/Dont-extract-suspend-functions-with-CoroutineScope-receiver>
+
+Or maybe not, this one was easy for a change:
+<https://youtrack.jetbrains.com/issue/KTIJ-12956/Replace-with-GlobalScope.launch-generates-invalid-call-to-deprecated-method>
+
+Will go back to trying port `kotlinx.coroutines` to the new parking API.
+
+2025-01-16
+----------
+
+Still working on the `kotlinx.coroutines` with the new parking API. I've managed
+to port the scheduler itself, but not the code that would actually test the
+scheduler, as that code relies heavily on what the JVM provides. I'll have to
+reimplement a couple of basic things like latches and barriers.
+
+2025-01-22
+----------
+
+Was busy looking into how `kotlinx.coroutines` can be tested with the new
+LinCheck functionality for the past couple of days.
+
+Now, back to datetime.
+
+I'm wondering if it makes sense to add a combinator:
+
+```kotlin
+/**
+ * Finds the [Instant] that has the updated [LocalDate] and the same [LocalTime] as `this` in [timeZone].
+ *
+ * [action] is invoked with the [LocalDate] of this [Instant] in the given [timeZone], and
+ * its return value is used as the new date.
+ *
+ * Note that the conversion back to [Instant] is not always well-defined.
+ * There can be the following possible situations:
+ * - Only one instant has this datetime value in the [timeZone]. In this case, the conversion is unambiguous.
+ * - No instant has this datetime value in the [timeZone].
+ *   Such a situation appears when the time zone experiences a transition from a lesser to a greater offset.
+ *   In this case, the conversion is performed with the lesser (earlier) offset,
+ *   as if the time gap didn't occur yet.
+ * - Two possible instants can have these datetime components in the [timeZone].
+ *   In this case, the earlier instant is returned.
+ *
+ * This function behaves differently from using date-based operations on [Instant] directly if there are
+ * several operations happening in a row.
+ * For example, `instant.withDate(zone) { it.plus(1, DateTimeUnit.MONTH).plus(1, DateTimeUnit.DAY) }`
+ * can return a different result from `instant.plus(1, DateTimeUnit.MONTH, zone).plus(1, DateTimeUnit.DAY, zone)`.
+ * The reason is that for [withDate], the conversion back to [Instant] as described above happens only once,
+ * whereas for successive modifications, each of them can lose some information when converting back to [Instant].
+ * If the result of `instant.plus(1, DateTimeUnit.MONTH, zone)` happens to be in a time gap, the [LocalTime] of
+ * the result will be different from the [LocalTime] of the original `instant` in `zone`.
+ */
+inline fun Instant.withDate(timeZone: TimeZone, action: (LocalDate) -> LocalDate): Instant =
+    with(toLocalDateTime(timeZone)) { action(date).atTime(time) }.toInstant(timeZone)
+```
+
+In general, I'm bothered by the non-associativity of datetime arithmetics, but
+in some cases, that's clearly unavoidable. If we have
+`LocalDate(year, month, day)` and add a month to it, and then one more month,
+this is going to be different from adding two months at once.
+The reason for this is that when adding $n$ months, we likely want
+the `yearMonth` of the result to be exactly $n$ months later, even when this
+means losing some information about the precise day-of-month.
+`2025-01-31 + 1 month = 2025-02-28`,
+`(2025-01-31 + 1 month) + 1 month = 2025-03-28`, but
+`2025-01-31 + 2 months = 2025-03-31`.
+Does this reasoning also translate well to associativity in the presence of time
+gaps?
+"When adding $n$ days, we want the date of the result to be exactly $n$ days
+later, even when this means losing the information about the precise
+time-of-day" doesn't work, as we freely move to the next day if we land into a
+time gap at 23:50.
+
+The more I think of it, the less sense the operation of adding a month to a
+`LocalDate` makes. How about this:
+
+```kotlin
+import kotlinx.datetime.*
+
+fun f(date: LocalDate) = date.daysUntil(date.plus(1, DateTimeUnit.MONTH))
+
+fun main() {
+    println(f(LocalDate(2025, 1, 25))) // 31
+    println(f(LocalDate(2025, 1, 26))) // 31
+    println(f(LocalDate(2025, 1, 27))) // 31
+    println(f(LocalDate(2025, 1, 28))) // 31
+    println(f(LocalDate(2025, 1, 29))) // 30
+    println(f(LocalDate(2025, 1, 30))) // 29
+    println(f(LocalDate(2025, 1, 31))) // 28
+    println(f(LocalDate(2025, 2, 25))) // 28
+    println(f(LocalDate(2025, 2, 26))) // 28
+    println(f(LocalDate(2025, 2, 27))) // 28
+    println(f(LocalDate(2025, 2, 28))) // 28
+}
+```
+
+Colloquially, I would expect people to use "a month later" at the end of the
+month to indicate the last day of the next month, but encoding this logic into
+computers feels unreliable to me.
+
+Regardless, I'm sure there's nothing to be done. I'll be eaten alive both by our
+users and my own colleagues if I suggest making `LocalDate.plus` an
+exception-throwing function in cases where the day-of-month can't be preserved,
+so there's no reason to even entertain this thought.
+
+Back to the issue of time gaps during arithmetics:
+
+| Target     | Adding months                                                                                                                       | Adding days                                                                       |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Dates      | Preserve the target month in case of a calendar gap                                                                                 | No gaps                                                                           |
+| Instants   | Preserve the target month in case of a calendar gap, but move into the next hour (potentially, into the next month) on time overlap | Move into the next hour (potentially, into the next day or month) on time overlap |
+
+There's no consistency at all, even in the scope of a single operation of adding
+a month to an `Instant`: if the target `LocalDateTime` doesn't exist, then the
+day-of-month will be clamped to the last day of the target month, unless there's
+a time gap at that time on that day, in which case the result will be the first
+day of the month after that.
+
+I wonder if there are realistic examples of this.
+
+```kotlin
+import kotlinx.datetime.*
+
+fun main() {
+    for (id in TimeZone.availableZoneIds) {
+        val zone = TimeZone.of(id)
+        val start = LocalDate(2024, 1, 31).atTime(23, 59).toInstant(zone)
+        for (monthsToAdd in 0..30) {
+            val end = start.plus(monthsToAdd, DateTimeUnit.MONTH, zone)
+            val endMonth = end.toLocalDateTime(zone).date.month.number
+            check(endMonth - 1 == monthsToAdd % 12) {
+                "$zone, adding $monthsToAdd months to 2024-01-31T23:59"
+            }
+        }
+    }
+}
+```
+doesn't find anything. That's reassuring.
+
+Let's run a wider search:
+
+```kotlin
+import kotlinx.datetime.*
+
+fun main() {
+    val strangeAddition = mutableListOf<Triple<String, Int, LocalDateTime>>()
+    for (id in TimeZone.availableZoneIds) {
+        val zone = TimeZone.of(id)
+        val start = LocalDate(1970, 1, 31).atTime(23, 59).toInstant(zone)
+        for (monthsToAdd in 0..700) {
+            val end = start.plus(monthsToAdd, DateTimeUnit.MONTH, zone)
+            val endMonth = end.toLocalDateTime(zone).date.month.number
+            if (endMonth - 1 != monthsToAdd % 12) {
+                strangeAddition.add(Triple(id, monthsToAdd, end.toLocalDateTime(zone)))
+            }
+        }
+    }
+    println(strangeAddition)
+}
+```
+
+This one does find a few outliers:
+
+```
+[(Pacific/Enderbury, 299, 1995-01-01T23:59),
+ (Europe/Sofia, 110, 1979-04-01T00:59),
+ (Pacific/Kiritimati, 299, 1995-01-01T23:59),
+ (Pacific/Kanton, 299, 1995-01-01T23:59),
+ (Singapore, 143, 1982-01-01T00:29),
+ (Asia/Kuala_Lumpur, 143, 1982-01-01T00:29),
+ (Asia/Singapore, 143, 1982-01-01T00:29)]
+```
+
+A full reproducer of the gotcha:
+
+```kotlin
+val zone = TimeZone.of("Asia/Singapore")
+val start = LocalDate(1981, 10, 31).atTime(23, 59).toInstant(zone)
+// Undershooting 1982-02-31
+assertEquals(
+    LocalDate(1982, 2, 28).atTime(23, 59),
+    start.plus(4, DateTimeUnit.MONTH, zone).toLocalDateTime(zone),
+)
+// Overshooting 1981-12-31
+assertEquals(
+    LocalDate(1982, 1, 1).atTime(0, 29),
+    start.plus(2, DateTimeUnit.MONTH, zone).toLocalDateTime(zone)
+)
+```
+
+The irritating aspect of datetimes is that we can't be sure what happens in the
+future, which timezone anomalies still await us.
+It would be easy to swipe all of these issues under the rug and say that this is
+never going to happen, and even if it does, it's not going to be a significant
+problem.
+We could just say in our documentation that when adding months, the month is
+preserved. But that's not true. So the documentation has to be polluted with
+these details that won't interest anyone,
+or else the contract is not stated in full.
+
+An alternative would be to change the implementation to always preserve the
+month, but then, all functions that convert `LocalDateTime` to `Instant`
+internally have to document that.
