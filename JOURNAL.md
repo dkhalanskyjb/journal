@@ -10926,3 +10926,267 @@ or else the contract is not stated in full.
 An alternative would be to change the implementation to always preserve the
 month, but then, all functions that convert `LocalDateTime` to `Instant`
 internally have to document that.
+
+2025-04-11
+----------
+
+Looking at <https://github.com/Kotlin/kotlinx.coroutines/issues/1061>.
+
+The examples for this issue, https://youtrack.jetbrains.com/issue/KT-30588,
+and https://github.com/Kotlin/kotlinx.coroutines/issues/2557 are all due to one
+pattern in Android APIs:
+https://stackoverflow.com/questions/36191755/why-use-weakreference-on-android-listeners
+Essentially, we're in this situation: we ask MediaPlayer to run some code when
+it can, but when it notices no one else pays close attention to the code that's
+about to run, it simply ignores the request.
+
+Is this behavior reasonable? I think this behavior is problematic even if we
+forget about `kotlinx.coroutines`. Intuitively, I'd expect (pseudocode)
+`addCallback { data -> doSomething(state, data) }` to run the callback, without
+me needing to do
+`val myCallback = { data -> doSomething(state, data) }; addCallback(myCallback)`.
+The latter code feels just a small edit away from breaking, even though even
+Android Studio calls that edit a "refactoring."
+
+Looking at a Android developer community discussion of the issue
+(https://old.reddit.com/r/androiddev/comments/1902bpa/is_using_weakreference_a_good_practice_if_yes_can/),
+it seems like people aren't fond of this behavior in general.
+
+2025-11-17
+----------
+
+We're currently rewriting the coroutines tutorial, and the next page on the
+chopping block is <https://kotlinlang.org/docs/cancellation-and-timeouts.html>.
+This work is mostly done by technical writers, we are only supplying them with
+the concepts to cover and the examples that the text should center on.
+Right now, my task is to write such examples.
+
+First, the full example of manual cancellation:
+
+```kotlin
+import kotlinx.coroutines.*
+import kotlin.time.Duration
+
+suspend fun main() {
+    withContext(Dispatchers.Default) {
+        val job1Started = CompletableDeferred<Unit>()
+        // `job` represents the lifecycle of the newly created coroutine
+        val job1: Job = launch {
+            println("The coroutine started")
+            // Signal that the coroutine has started executing
+            job1Started.complete(Unit)
+            try {
+                // Suspend for an infinite time.
+                // Without cancellation, this call would never return.
+                delay(Duration.INFINITE)
+            } catch (e: CancellationException) {
+                println("The coroutine got cancelled: $e")
+                // Cancellation exceptions must always be rethrown!
+                throw e
+            }
+            println("This line will never be executed")
+        }
+        // Wait for job1 to actually start before we cancel it
+        job1Started.await()
+        // Cancel the coroutine,
+        // causing the `delay` to throw a `CancellationException`
+        job1.cancel()
+
+        // `async` returns a `Deferred`, which inherits from `Job`.
+        val job2 = async {
+            // This line may not be printed if the coroutine doesn't
+            // start executing before it's cancelled:
+            println("The `async` coroutine started")
+            try {
+                // Equivalent to `delay(Duration.INFINITE)`,
+                // but the intent is clearer:
+                awaitCancellation()
+            } catch (e: CancellationException) {
+                println("The `async` coroutine got cancelled")
+                throw e
+            }
+        }
+        job2.cancel()
+    }
+    // Coroutine builders like `withContext` or `coroutineScope`
+    // will wait even for cancelled child coroutines to finish,
+    // so `coroutine got cancelled` will be printed before this line:
+    println("Cancellation has happened by that point")
+}
+```
+
+Note: in some use cases, instead of `job1Started`, the more convenient approach
+of passing a `CoroutineStart` coroutine-starting strategy to `launch` or `async`
+can be taken to override the behavior of not even starting to execute a
+cancelled coroutine.
+Link to <https://kotlinlang.org/api/kotlinx.coroutines/kotlinx-coroutines-core/kotlinx.coroutines/-coroutine-start/>.
+
+The next example concerns how exceptions propagate
+through structured concurrency:
+
+```kotlin
+import kotlinx.coroutines.*
+import kotlin.time.Duration
+
+suspend fun main() {
+    withContext(Dispatchers.Default) {
+        val childrenGotLaunched = CompletableDeferred<Unit>()
+        val parentJob = launch {
+            // Spawn two child jobs:
+            launch {
+                try {
+                    awaitCancellation()
+                } finally {
+                    println("Child coroutine 1 got cancelled")
+                }
+            }
+            launch {
+                try {
+                    awaitCancellation()
+                } finally {
+                    println("Child coroutine 2 got cancelled")
+                }
+            }
+            childrenGotLaunched.complete(Unit)
+        }
+        // Wait for the parent coroutine to signal to us that it has started
+        // all of its children.
+        childrenGotLaunched.await()
+        // Cancel the parent.
+        // The children do not need to be manually cancelled,
+        // the parent cancels them in turn.
+        parentJob.cancel()
+    }
+}
+```
+
+The next group of examples shows how to make coroutines cancellable,
+which does not happen by default.
+
+`isActive`: for when we want to gracefully stop
+when the work is no longer needed.
+
+```kotlin
+import kotlinx.coroutines.*
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.random.Random
+
+suspend fun main() {
+    withContext(Dispatchers.Default) {
+        val unsortedList = MutableList(10) { Random.nextInt() }
+        val listSortingJob = launch {
+            // Do some long work without suspending the coroutine.
+            // Here, we repeatedly sort the same list.
+            var i = 0
+            while (isActive) {
+                unsortedList.sort()
+                ++i
+            }
+            println(
+                "We were asked to stop sorting the list after $i iterations"
+            )
+        }
+        // Sort the list for 100 milliseconds, then consider it sorted enough
+        delay(100.milliseconds)
+        listSortingJob.cancel()
+        // Before using the data accessed by another coroutine in parallel,
+        // await its completion, or data races may happen:
+        listSortingJob.join()
+        println("The list is probably sorted: $unsortedList")
+    }
+}
+```
+
+`ensureActive`: for when we want to leave from some nested code by throwing
+an exception if we are cancelled.
+
+```kotlin
+import kotlinx.coroutines.*
+import kotlin.time.Duration.Companion.milliseconds
+
+suspend fun main() {
+    withContext(Dispatchers.Default) {
+        val childJob = launch {
+            var start = 0
+            try {
+                while (true) {
+                    ++start
+                    // Check the Collatz conjecture for `start`
+                    var n = start
+                    while (n != 1) {
+                        // Throw a `CancellationException`
+                        // when `isActive == false`:
+                        ensureActive()
+                        n = if (n % 2 == 0) n / 2 else 3 * n + 1
+                    }
+                }
+            } finally {
+                println("The Collatz conjecture holds for 0..${start-1}")
+            }
+        }
+        // Try disproving the Collatz conjecture for one second,
+        // then consider it proven.
+        delay(100.milliseconds)
+        childJob.cancel()
+    }
+}
+```
+
+`yield`: for releasing a thread for other coroutines to use.
+
+```kotlin
+import kotlinx.coroutines.*
+
+fun main() {
+    // runBlocking uses the current thread for running all coroutines,
+    // so all workers have to share the same thread.
+    runBlocking {
+        val nWorkers = 5
+        repeat(nWorkers) {
+            launch {
+                val i = it + 1
+                repeat(5) {
+                    val j = it + 1
+                    // yield the thread for the other workers to use.
+                    // Without this, the coroutines just run sequentially.
+                    yield()
+                    // The first number is the worker's 1-based index,
+                    // the second is the 1-based iteration index
+                    println("$i * $j = ${i * j}")
+                }
+            }
+        }
+    }
+}
+```
+
+`runInterruptible`: for calling interruptible Java code.
+
+```kotlin
+import kotlinx.coroutines.*
+
+suspend fun main() {
+    withContext(Dispatchers.Default) {
+        val childStarted = CompletableDeferred<Unit>()
+        val childJob = launch {
+            try {
+                runInterruptible {
+                    childStarted.complete(Unit)
+                    try {
+                        // sleep unimaginably long
+                        Thread.sleep(Long.MAX_VALUE)
+                    } catch (e: InterruptedException) {
+                        println("Got (Java-)interrupted: $e")
+                        throw e
+                    }
+                }
+            } catch (e: CancellationException) {
+                println("Also got (Kotlin-)cancelled: $e")
+                throw e
+            }
+        }
+        childStarted.await()
+        childJob.cancel()
+    }
+}
+```
