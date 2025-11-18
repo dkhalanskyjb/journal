@@ -11190,3 +11190,41 @@ suspend fun main() {
     }
 }
 ```
+
+Ok, done with the first portion of the examples. Let's switch to something else.
+
+Another fairly urgent task is writing the structured concurrency documentation.
+Judging by the lack of feedback, no one has anything against the
+general structure I proposed, so I'll just finish it:
+<https://github.com/Kotlin/kotlinx.coroutines/pull/4433>.
+
+The process of writing this documentation is akin to sticking oscilloscope
+probes into different pieces of electronics.
+For example, to double-check that `withTimeout` can't be cancelled
+after producing the value if no child coroutines remain, I've checked this code:
+
+```kotlin
+import kotlinx.coroutines.*
+
+suspend fun main() {
+    val dispatcher = Dispatchers.Default.limitedParallelism(1)
+    runBlocking(dispatcher) {
+        withTimeout(100) {
+            val job = launch { }
+            this@runBlocking.launch {
+                job.cancelAndJoin()
+                Thread.sleep(200)
+            }
+            42
+        }
+    }
+}
+```
+
+Of course, this behavior makes sense analytically (a coroutine can't be both
+completed and also cancelled, so after all child coroutines finish, there is
+nothing to do but to return the value),
+yet I'd prefer to double-check it before including in the documentation.
+
+I did discover some surprising behaviors this way, so this is not all wasted
+effort.
