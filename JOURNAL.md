@@ -11228,3 +11228,343 @@ yet I'd prefer to double-check it before including in the documentation.
 
 I did discover some surprising behaviors this way, so this is not all wasted
 effort.
+
+2025-11-18
+----------
+
+Received the second portion of the outline for the improved version of
+<https://kotlinlang.org/docs/cancellation-and-timeouts.html>.
+Will need to write the remaining examples.
+
+An example of suspensions in `kotlinx.coroutines` primitives
+reacting to cancellation:
+
+```kotlin
+import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlin.time.Duration
+
+suspend fun main() {
+    withContext(Dispatchers.Default) {
+        val childJobs = listOf(
+            launch {
+                awaitCancellation()
+            },
+            launch {
+                delay(Duration.INFINITE)
+            },
+            launch {
+                val channel = Channel<Int>()
+                // Trying to receive from a channel
+                // that no one will write to
+                channel.receive()
+            },
+            launch {
+                val deferred = CompletableDeferred<Int>()
+                // Trying to receive from a deferred
+                // that no one will complete
+                deferred.await()
+            },
+            launch {
+                val mutex = Mutex(locked = true)
+                // Trying to obtain a lock
+                // that no one is going to unlock
+                mutex.lock()
+            }
+        )
+        delay(100.milliseconds) // Let some time pass
+        childJobs.forEach { it.cancel() }
+    }
+    println("All child jobs completed!")
+}
+```
+
+The reason they all react to cancellation is the
+`suspendCancellableCoroutine` primitive on top of which they are implemented:
+
+```kotlin
+import kotlinx.coroutines.*
+
+suspend fun main() {
+    withContext(Dispatchers.Default) {
+        val childJob = launch {
+            val storedCont: CancellableContinuation<Unit>
+            try {
+                suspendCancellableCoroutine { cont ->
+                    storedCont = cont
+                }
+            } catch (e: CancellationException) {
+                println(storedCont)
+            }
+        }
+    }
+    println("All child jobs completed!")
+}
+```
+
+While writing this example, I noticed that it doesn't actually compile for
+some reason, even though logically, it should.
+The culprit is the missing contract on the `suspendCancellableCoroutine`
+function. Would anyone *actually* write such code? Clearly not,
+but even though I can't think of any clearly useful use cases, the contract
+could still streamline some code, so why not add it:
+<https://github.com/Kotlin/kotlinx.coroutines/pull/4574>
+
+I was asked about whether we've discussed an alternative to `runBlocking` that
+integrates with process shutdown cleanly, that is, cancels
+the running coroutines before terminating.
+This is the first time I'm hearing about this requirement,
+and it's unclear to me how valuable this addition would be.
+In an application where every `CoroutineScope` is a child of the coroutine
+scope in `main()`, yes, truly, reacting to signals in `main` ensures that every
+coroutine in the program learns about the shutdown and cancels itself,
+which will lead to a graceful shutdown...
+
+Are people writing such coroutine scope hierarchies, though, or is everyone
+creating custom `CoroutineScope()` instances or using `GlobalScope` instead?
+If so, only a limited number of coroutines will observe the signal.
+Still, filed <https://github.com/Kotlin/kotlinx.coroutines/issues/4575>
+to keep track of the issue.
+
+<https://github.com/arrow-kt/suspendapp> was linked to me as an example of this
+functionality, and it does look interesting (though I haven't yet looked at
+the implementation).
+It's especially interesting that they link to
+<https://apidocs.arrow-kt.io/arrow-fx-coroutines/arrow.fx.coroutines/-resource/index.html>,
+which seems to be what JetBrains Air's internal handling of closeable resources
+is based on.
+I was shown that mechanism once as an impressively ergonomic API for
+a troublesome problem area, but neither me nor the presenter knew where the idea
+came from initially. I think that now I am at least closer. Will need to take
+a closer look at it and the other API entries from the arrow-kt coroutines
+library.
+
+Anyway, back to writing examples.
+
+I need to show the behavior of prompt cancellation.
+
+```kotlin
+import java.nio.file.*
+import java.nio.charset.*
+import kotlinx.coroutines.*
+import java.io.*
+
+// `scope` is a coroutine scope using the UI thread
+class ScreenWithFileContents(private val scope: CoroutineScope) {
+    fun displayFile(path: Path) {
+        scope.launch {
+            val contents = withContext(Dispatchers.IO) {
+                Files.newBufferedReader(
+                    path, Charset.forName("US-ASCII")
+                ).use {
+                    it.readLines()
+                }
+            }
+            // It is safe to call `updateUi` here.
+            // If `leaveScreen` was already called,
+            // `withContext` would have thrown `CancellationException`
+            // even if it was ready to return a value.
+            // Currently, we are holding the UI thread, so no one can call
+            // `leaveScreen` in parallel.
+            updateUi(contents)
+        }
+    }
+
+    // May throw exceptions if it is called after we've left the screen!
+    private fun updateUi(contents: List<String>) {
+        contents.forEach { addOneLineToUi() }
+    }
+
+    private fun addOneLineToUi(line: String) {
+        // Omitted, as we have no actual screen
+    }
+
+    // Can only be called from the UI thread!
+    fun leaveScreen() {
+        // We have left the screen, now we are not allowed to update its UI
+        scope.cancel()
+    }
+}
+```
+
+Now, for the dangers of prompt cancellation. A very similar setup, but now,
+we go between the UI thread and an IO thread after reading each line.
+We risk losing a closeable resource in this scenario.
+
+```kotlin
+import java.nio.file.*
+import java.nio.charset.*
+import kotlinx.coroutines.*
+import java.io.*
+
+// `scope` is a coroutine scope using the UI thread
+class ScreenWithFileContents(private val scope: CoroutineScope) {
+    fun displayFile(path: Path) {
+        scope.launch {
+            var file: File? = null
+            try {
+                withContext(Dispatchers.IO) {
+                    file = Files.newBufferedReader(
+                        path, Charset.forName("US-ASCII")
+                    )
+                }
+                // If we simply returned `file` from `withContext`,
+                // it could have been lost if `leaveScreen` was invoked
+                // in the meantime.
+                // Therefore, we instead write it into a variable
+                // and rely on the `finally` block being invoked.
+                updateUi(contents)
+            } finally {
+                file?.close()
+            }
+        }
+    }
+
+    private suspend fun updateUi(reader: Reader) {
+        // Show the file contents
+        while (true) {
+            val line = withContext(Dispatchers.IO) {
+                reader.readLine()
+            }
+            if (line == null)
+                break
+            addOneLineToUi(line)
+        }
+    }
+
+    private fun addOneLineToUi(line: String) {
+        // Omitted, as we have no actual screen
+    }
+
+    // Can only be called from the UI thread!
+    fun leaveScreen() {
+        // We have left the screen, now we are not allowed to update its UI
+        scope.cancel()
+    }
+}
+```
+
+Regarding `NonCancellable`:
+
+```kotlin
+import kotlinx.coroutines.*
+import kotlin.time.Duration.Companion.milliseconds
+
+val serviceStarted = CompletableDeferred<Unit>()
+
+fun startService() {
+    println("Starting the service...")
+    serviceStarted.complete(Unit)
+}
+
+suspend fun shutdownServiceAndWait() {
+    println("Shutting down...")
+    delay(100.milliseconds)
+    println("Successfully shut down!")
+}
+
+suspend fun main() {
+    withContext(Dispatchers.Default) {
+        val childJob = launch {
+            startService()
+            try {
+                awaitCancellation()
+            } finally {
+                // Without `withContext(NonCancellable)`,
+                // waiting for shutdown would *also*
+                // throw `CancellationException`,
+                // as this coroutine won't become un-cancelled
+                withContext(NonCancellable) {
+                    shutdownServiceAndWait()
+                }
+            }
+        }
+        serviceStarted.await()
+        childJob.cancel()
+    }
+    println("Exiting the program")
+}
+```
+
+Now, for timeouts:
+
+```kotlin
+import kotlinx.coroutines.*
+import kotlin.time.Duration.Companion.milliseconds
+
+suspend fun slowOperation(): Int {
+    try {
+        delay(300.milliseconds)
+        return 5
+    } catch (e: CancellationException) {
+        println("The slow operation got cancelled: $e")
+        throw e
+    }
+}
+
+suspend fun fastOperation(): Int {
+    try {
+        delay(15.milliseconds)
+        return 14
+    } catch (e: CancellationException) {
+        println("The fast operation got cancelled: $e")
+        throw e
+    }
+}
+
+suspend fun main() {
+    withContext(Dispatchers.Default) {
+        val slow = withTimeoutOrNull(100.milliseconds) {
+            slowOperation()
+        }
+        println("The slow operation finished with $slow")
+        val fast = withTimeoutOrNull(100.milliseconds) {
+            fastOperation()
+        }
+        println("The fast operation finished with $fast")
+    }
+}
+```
+
+I believe these were all the examples I was supposed to provide for now.
+
+---
+
+Another problem I'm considering right now is related to
+<https://github.com/Kotlin/kotlinx-datetime/discussions/582>.
+The user preference is completely clear: they want a non-magical behavior.
+Now, the question is, what do we do about the existing magical behaviors?
+
+* Wasm/WASI already uses `kotlinx-datetime-zoneinfo` for its `System` timezone
+  database.
+* Wasm/JS and JS use js-joda for their timezone databases.
+
+I've already raised this to my colleagues, and we've reached the conclusion
+that this should be *fine*.
+We can *define* `System` to mean that on Wasm and JS, given that no better
+alternative is presented.
+The other option would be not to provide `System` on Wasm and JS, and that's
+inconvenient when writing common code.
+
+However, now I'm thinking about it some more, and I'm not confident in this
+solution, as we have to consider backward compatibility as well.
+Imagine that Wasm/WASI itself starts supporting timezone databases
+a couple of years later. What do we do in each scenario?
+
+1. If we don't provide `System` on Wasm/WASI, we'll only need to add it.
+2. If we do provide `System` to mean `zoneinfo`, we're stuck with a difficult
+   choice:
+   * We could make `System` the _true_ `System`.
+     This would be a regression for those relying on `System` on WASI to be
+     up-to-date.
+   * We could make `System` the _true_ `System` if there's no `Iana`, but
+     use `Iana` when it's there. This is the option 4, one that our users
+     explicitly voted against.
+   * We could keep `System` the same as `Iana`. This would be really weird
+     for new users, even though it would indeed preserve backward compatibility.
+
+The choice to just make `System` the _true_ one is the least disruptive,
+as relying on `Iana` (or, as one commenter nicely put it, `Bundled`) should be
+explicit if you want the timezone database to be up-to-date.
+Still, it's a change in behavior, which would be nice to avoid.
+
