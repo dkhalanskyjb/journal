@@ -11568,3 +11568,252 @@ as relying on `Iana` (or, as one commenter nicely put it, `Bundled`) should be
 explicit if you want the timezone database to be up-to-date.
 Still, it's a change in behavior, which would be nice to avoid.
 
+2025-12-03
+----------
+
+Considering the `Flow.combine` operator right now.
+
+Historically, `combine` was an equivalent of RxJava's `combineLatest`:
+<https://slack-chats.kotlinlang.org/t/490642/the-combinelatest-operator-is-deprecated-for-flows-is-there->
+
+We've received a complaint about `combine` not handling backpressure once:
+<https://github.com/Kotlin/kotlinx.coroutines/issues/2671>. This means that
+firing several values from upstream in quick succession causes `combine` to
+skip some of them.
+
+At that time, I didn't look deeply into it and decided that the documentation
+implied the observable behavior: after all, if we're interested in latest
+values, why would we bother with non-latest ones?
+
+However, recently, I learned that `combine` does *not* purposefully conflate
+the upstream values.
+
+```kotlin
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.*
+
+fun main() {
+    runBlocking {
+        val flow1 = flowOf(1)
+        val flow2 = flowOf('a', 'b', 'c', 'd', 'e', 'f', 'g')
+        combine(flow1, flow2) { x, y ->
+            delay(50)
+            x to y
+        }.collect {
+            println("$it")
+        }
+    }
+}
+```
+
+<https://pl.kotl.in/TXbAD0zI->
+
+It prints
+
+```
+(1, a)
+(1, c)
+(1, e)
+(1, g)
+```
+
+I'm yet to read the implementation of `combine` to figure out why this happens.
+However, this is clearly an inconsistent in-between behavior that doesn't
+provide delivery guarantees, but also doesn't prevent unnecessary work.
+One reasonable implementation would print everything from `'a'` to `'g'`,
+another one would just print `'g'`.
+
+The value-preserving implementation is easy to convert into a work-avoiding one
+by sticking `.conflate()` on the input flows:
+
+```kotlin
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.*
+
+fun main() {
+    runBlocking {
+        val flow1 = flowOf(1)
+        val flow2 = flowOf('a', 'b', 'c', 'd', 'e', 'f', 'g')
+        combine(flow1.conflate(), flow2.conflate()) { x, y ->
+            delay(50)
+            x to y
+        }.collect {
+            println("$it")
+        }
+    }
+}
+```
+
+It prints
+
+```
+(1, a)
+(1, g)
+```
+
+On the other hand, to convert a work-losing implementation into
+a value-preserving one, you need to pretend you don't have a value available
+until the old value is processed, which is not a straightforward interaction.
+
+I can get a rough picture of how `combine` is used with this regex:
+<https://grep.app/search?f.lang=Kotlin&regexp=true&q=combine%5C%28%5B%5E%7B%5D*%5C%29+%7B>
+The situation is complicated: it's most commonly used with flows that are
+already conflated, like `StateFlow`.
+
+This idea that `combine` *is* actually only used for obtaining latest values
+is supported by the scenario with which I was approached recently.
+The ones asking about this behavior were attempting to implement this:
+
+```kotlin
+sealed interface Either<out A, out B> {
+    class Left<A, B>(val inner: A): Either<A, B>
+    class Right<A, B>(val inner: B): Either<A, B>
+}
+
+fun <A, B> mergeFlows(flow1: Flow<A>, flow2: Flow<B>): Flow<Either<A, B>> =
+    merge(flow1.map(Either<A, B>::Left), flow2.map(Either<A, B>::Right))
+```
+
+Their plan was to use `combine` and send both values and
+detect which value changed since the last time, which would avoid needing
+wrappers like `Either` (which Kotlin doesn't provide in the standard library).
+However, `combine` conflating *some* values threw a wrench in that
+(and, as I'm told, wasted some hours of debugging).
+
+2026-01-12
+----------
+
+Happy New Year! I'm back from vacation, refreshed and energetic.
+
+So as not to part with that energy too quickly, I'll start by not reading my
+mail for the first half an hour and have some fun instead.
+
+I'd like to implement a tiny build system. I have access to a nice powerful PC
+at work, but am also occasionally using a far less capable laptop.
+Building `kotlinx.coroutines` on the PC takes around 10 minutes, whereas for
+the laptop (and the TeamCity agents assigned to `kotlinx.coroutines`), it's 30.
+I do occasionally send over the contents of the repository to the PC already
+whenever I need the results fast and would like to automate the process.
+
+All of this is only for Linux (for now?).
+
+First, a separate directory:
+
+```sh
+mkdir -p ~/BuildSystem/builds
+```
+
+Each build will be a separate subdirectory of `~/BuildSystem/builds`.
+For example, `~/BuildSystem/builds/coroutines-1234` is the build `1234`,
+with `coroutines` being the project.
+I can't really have a project-agnostic build system, as, for example,
+`kotlinx.coroutines` requires the following invocations in order to work:
+
+```sh
+./gradlew clean build publishToMavenLocal
+cd integration-testing
+./gradlew clean check
+```
+
+So, I'll need to store this invocation somewhere.
+
+This gets me thinking: how do I avoid race conditions between builds?
+If two builds publish their artifacts to the local Maven repository,
+`integration-testing` would be testing only one of them for two builds,
+or worse, have a mix of artifacts between the two builds.
+
+Regarding races, I also could not figure out how to maintain the build number
+in a race-condition-free manner without file locking.
+If I have a, say, `build_number.txt` with `1234` in it and run two jobs at the
+same time, the classic race could happen, even with the atomic writes ensured
+by `rename(2)`:
+
+```
+thread1: read 1234
+thread2: read 1234
+thread2: write 1235
+thread1: write 1235
+```
+
+Why would I be worried about race conditions even though I fully control the
+process and could just run builds sequentially and never encounter a race?
+After all, I'm not actually writing a TeamCity clone here.
+Answer: 1) professional curiosity, 2) it often takes less time to just do the
+right thing and sleep peacefully instead of firing up the neurons to figure out
+the risks and time savings involved: "What if I would like to run these as cron
+jobs? How likely would the race cause the correctness issue?".
+
+So, for consistent behavior, let's reach for a tried and true tool instead of
+bashing together something with a shell script:
+
+```sh
+sqlite3 ~/BuildSystem/database.db 'create table builds(build_number INTEGER PRIMARY KEY, project TEXT NOT NULL, branch TEXT)'
+```
+
+The way SQLite most likely achieves atomicity of insertions is by locking the
+database file, I imagine.
+
+In any case, I should probably ask my colleagues how to avoid
+`publishToMavenLocal` in the `kotlinx.coroutines` build.
+This means opening my mail. Well, here we go...
+
+I'll start maintaining a TODO list at the bottom of this journal.
+
+TODO
+----
+
+* (2026-01-12) There's an internal CTF about to happen.
+  I should run through the warmup problem set.
+* (2026-01-12)
+  Research <https://github.com/Kotlin/kotlinx.coroutines/issues/4590#issuecomment-3675886389>
+  to see if our handling of thread context elements in the fast path is still
+  wrong even with the fix.
+* (2026-01-12) Deal with ByteBuddy slowness if we don't adopt the
+  `ServiceLoader`-based solution instead:
+  <https://kotlinlang.slack.com/archives/C1CFAFJSK/p1760983984684049>
+* (2026-01-12) Review <https://github.com/Kotlin/kotlinx.coroutines/pull/4601/>
+* (2026-01-12) Research the Lincheck error:
+```
+org.jetbrains.kotlinx.lincheck.LincheckAssertionError: 
+= The execution has hung, see the thread dump =
+Execution scenario (parallel part):
+| release()    | release() | acquire() |
+| tryAcquire() | release() |           |
+
+Thread-0:
+  jdk.internal.misc.Unsafe.park(Native Method)
+  java.util.concurrent.locks.LockSupport.park(LockSupport.java:323)
+  java.lang.Thread.run(Thread.java:829)
+Thread-2:
+  kotlinx.coroutines.sync.SemaphoreAndMutexImpl.acquireSlowPath(Semaphore.kt:399)
+  kotlinx.coroutines.sync.SemaphoreAndMutexImpl.acquire(Semaphore.kt:179)
+  kotlinx.coroutines.lincheck.SemaphoreLincheckTestBase.acquire(SemaphoreLincheckTest.kt:18)
+  java.lang.Thread.run(Thread.java:829)
+Thread-1:
+  java.lang.Thread.yield(Native Method)
+  java.lang.Thread.run(Thread.java:829)
+org.jetbrains.kotlinx.lincheck.LincheckAssertionError:
+= The execution has hung, see the thread dump =
+Execution scenario (parallel part):
+| release()    | release() | acquire() |
+| tryAcquire() | release() |           |
+Thread-0:
+  jdk.internal.misc.Unsafe.park(Native Method)
+  java.util.concurrent.locks.LockSupport.park(LockSupport.java:323)
+  java.lang.Thread.run(Thread.java:829)
+Thread-2:
+  kotlinx.coroutines.sync.SemaphoreAndMutexImpl.acquireSlowPath(Semaphore.kt:399)
+  kotlinx.coroutines.sync.SemaphoreAndMutexImpl.acquire(Semaphore.kt:179)
+  kotlinx.coroutines.lincheck.SemaphoreLincheckTestBase.acquire(SemaphoreLincheckTest.kt:18)
+  java.lang.Thread.run(Thread.java:829)
+Thread-1:
+  java.lang.Thread.yield(Native Method)
+  java.lang.Thread.run(Thread.java:829)
+  at app//org.jetbrains.kotlinx.lincheck.LinChecker.check(LinChecker.kt:38)
+  at app//org.jetbrains.kotlinx.lincheck.LinChecker$Companion.check(LinChecker.kt:197)
+  at app//org.jetbrains.kotlinx.lincheck.LinCheckerKt.check(LinChecker.kt:212)
+  at app//org.jetbrains.kotlinx.lincheck.LinCheckerKt.check(LinChecker.kt:221)
+  at app//kotlinx.coroutines.AbstractLincheckTest.modelCheckingTest(AbstractLincheckTest.kt:20)
+```
+* Update the library authors guide to include
+  <https://youtrack.jetbrains.com/issue/KT-83393>
