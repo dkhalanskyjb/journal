@@ -11759,21 +11759,85 @@ This means opening my mail. Well, here we go...
 
 I'll start maintaining a TODO list at the bottom of this journal.
 
+2026-01-13
+----------
+
+Still dealing with the messages I've received during the vacation, and also
+the new ones, replying to users here and there.
+Most notably, I was asked by a colleague what I thought about their proposal
+for unifying the version schemes in the Kotlin ecosystem.
+This led me to a surprisingly deep dive. I won't repeat it here, but the
+takeaways are:
+
+- There's no consensus on whether *binary* compatibility breakage is a SemVer
+  violation, and if so, how severe it is.
+  SemVer itself does not distinguish between source and binary compatibility,
+  so it's all up to interpretation.
+  Different people say wildly different things, from claiming that ABI is
+  so important that the major version should be increased, to the opposite,
+  saying it only warrants a patch release.
+  I disagree with the latter at least, as I clearly remember the DLL hell
+  ensuing when a symbol can't be found, so yes, it *is* clearly breakage.
+- In source-based languages, binary compatibility is at least somewhat
+  easy to disregard, but for binary-based distribution scheme used for the JVM,
+  binary compatibility is more important than source compatibility:
+  if `my.fun.lib` is using `kotlinx.coroutines.Something`, but then we remove
+  `Something`, all clients of `my.fun.lib` are broken with no recourse;
+  if we just break compilation, however, everyone can fix it in their own code.
+
+Together, these two facts mean that SemVer is insufficient for the JVM.
+
+2026-01-14
+----------
+
+Half a day in meetings, another half checking the reproducers.
+
+Dealt with this:
+
+* (2026-01-12)
+  Research <https://github.com/Kotlin/kotlinx.coroutines/issues/4590#issuecomment-3675886389>
+  to see if our handling of thread context elements in the fast path is still
+  wrong even with the fix.
+
+After a careful look, it looks like a false report. This doesn't seem like an
+issue to me. I don't have much to tell here, except that the mutex was
+superfluous, a `delay(1)` instead of a `mutex.lock()` would have done the same
+trick and be easier to read.
+
+Now, going to researching the Lincheck error. It's tricky.
+What's notable is that the tests were not running in a stress test mode, and
+also, *two* independent Lincheck tests failed in one build.
+Moreover, they took 6 and 9 minutes, whereas in a normal build, they take
+6 and 25 seconds.
+
+Alright, I give up. After poking around some more, I am pretty confident this
+was not a bug in our concurrent data structures. I've asked the Lincheck team
+about this, let's see what they think. Granted, we are using a very outdated
+Lincheck version, but how come this flakiness surfaced only once in all these
+years?
+
+Meanwhile, there's some more activity in
+<https://youtrack.jetbrains.com/issue/KT-76665>.
+I'd better hurry with my proposal to add cleanup scopes to Kotlin, so that this
+initiative, which I find harmful, can be put to rest.
+
+Filed <https://youtrack.jetbrains.com/issue/KT-83683/Type-safe-equality-operator>
+**Please vote for this** if you're reading, which you probably don't, given how
+I've been neglecting this journal for so long.
+
 TODO
 ----
 
 * (2026-01-12) There's an internal CTF about to happen.
   I should run through the warmup problem set.
-* (2026-01-12)
-  Research <https://github.com/Kotlin/kotlinx.coroutines/issues/4590#issuecomment-3675886389>
-  to see if our handling of thread context elements in the fast path is still
-  wrong even with the fix.
 * (2026-01-12) Deal with ByteBuddy slowness if we don't adopt the
   `ServiceLoader`-based solution instead:
   <https://kotlinlang.slack.com/archives/C1CFAFJSK/p1760983984684049>
 * (2026-01-12) Review <https://github.com/Kotlin/kotlinx.coroutines/pull/4601/>
 * (2026-01-12) Research the Lincheck error:
 ```
+Semaphore1LincheckTest (6m):
+
 org.jetbrains.kotlinx.lincheck.LincheckAssertionError: 
 = The execution has hung, see the thread dump =
 Execution scenario (parallel part):
@@ -11792,28 +11856,61 @@ Thread-2:
 Thread-1:
   java.lang.Thread.yield(Native Method)
   java.lang.Thread.run(Thread.java:829)
-org.jetbrains.kotlinx.lincheck.LincheckAssertionError:
+
+UnlimitedChannelLincheckTest (9m):
+
+org.jetbrains.kotlinx.lincheck.LincheckAssertionError: 
 = The execution has hung, see the thread dump =
 Execution scenario (parallel part):
-| release()    | release() | acquire() |
-| tryAcquire() | release() |           |
-Thread-0:
-  jdk.internal.misc.Unsafe.park(Native Method)
-  java.util.concurrent.locks.LockSupport.park(LockSupport.java:323)
+| send(5)                   | receive() + cancel | sendViaSelect(5) |
+| sendViaSelect(5) + cancel | receiveViaSelect() |                  |
+
+Thread-1:
+  java.lang.Class.forName0(Native Method)
+  java.lang.Class.forName(Class.java:315)
+  kotlin.SynchronizedLazyImpl.getValue(LazyJVM.kt:86)
+  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
+  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
+  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
+  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
+  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
+  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
+  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
+  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
+  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
+  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
+  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
+  org.objectweb.asm.commons.AdviceAdapter.visitMethodInsn(AdviceAdapter.java:456)
+  org.jetbrains.kotlinx.lincheck.CancellabilitySupportMethodTransformer.visitMethodInsn(CancellabilitySupportTransformer.kt:34)
+  org.objectweb.asm.ClassReader.readCode(ClassReader.java:2448)
+  org.objectweb.asm.ClassReader.readMethod(ClassReader.java:1514)
+  org.objectweb.asm.ClassReader.accept(ClassReader.java:744)
+  org.objectweb.asm.ClassReader.accept(ClassReader.java:424)
+  org.jetbrains.kotlinx.lincheck.TransformationClassLoader.instrument(TransformationClassLoader.java:158)
+  org.jetbrains.kotlinx.lincheck.TransformationClassLoader.loadClass(TransformationClassLoader.java:121)
+  java.lang.ClassLoader.defineClass1(Native Method)
+  java.lang.ClassLoader.defineClass(ClassLoader.java:1022)
+  java.lang.ClassLoader.defineClass(ClassLoader.java:883)
+  org.jetbrains.kotlinx.lincheck.TransformationClassLoader.loadClass(TransformationClassLoader.java:122)
+  kotlinx.coroutines.CancellableContinuationKt.getOrCreateCancellableContinuation(CancellableContinuation.kt:467)
+  kotlinx.coroutines.channels.BufferedChannel.receiveOnNoWaiterSuspend(BufferedChannel.kt:3714)
+  kotlinx.coroutines.channels.BufferedChannel.receive$suspendImpl(BufferedChannel.kt:705)
+  kotlinx.coroutines.channels.BufferedChannel.receive(BufferedChannel.kt)
+  kotlinx.coroutines.lincheck.ChannelLincheckTestBase.receive(ChannelsLincheckTest.kt:119)
   java.lang.Thread.run(Thread.java:829)
 Thread-2:
-  kotlinx.coroutines.sync.SemaphoreAndMutexImpl.acquireSlowPath(Semaphore.kt:399)
-  kotlinx.coroutines.sync.SemaphoreAndMutexImpl.acquire(Semaphore.kt:179)
-  kotlinx.coroutines.lincheck.SemaphoreLincheckTestBase.acquire(SemaphoreLincheckTest.kt:18)
-  java.lang.Thread.run(Thread.java:829)
-Thread-1:
   java.lang.Thread.yield(Native Method)
   java.lang.Thread.run(Thread.java:829)
-  at app//org.jetbrains.kotlinx.lincheck.LinChecker.check(LinChecker.kt:38)
-  at app//org.jetbrains.kotlinx.lincheck.LinChecker$Companion.check(LinChecker.kt:197)
-  at app//org.jetbrains.kotlinx.lincheck.LinCheckerKt.check(LinChecker.kt:212)
-  at app//org.jetbrains.kotlinx.lincheck.LinCheckerKt.check(LinChecker.kt:221)
-  at app//kotlinx.coroutines.AbstractLincheckTest.modelCheckingTest(AbstractLincheckTest.kt:20)
+Thread-0:
+  java.lang.Thread.yield(Native Method)
+  java.lang.Thread.run(Thread.java:829)
 ```
-* Update the library authors guide to include
+* (2026-01-12) Update the library authors guide to include
   <https://youtrack.jetbrains.com/issue/KT-83393>
+* (2026-01-13) We received complaints about `debounce` causing liveness issues.
+  Investigate. So far, the complaint makes sense: we don't provide a way to say
+  "emit anything if at least 100 milliseconds pass without the values stopping,
+  we're tired of waiting".
+* (2026-01-14) Add `ExperimentalCoroutinesApi` to `Channel.consumeTo`.
+* (2026-01-14) Finish and present my cleanup scope stdlib proposal.
+* (2026-01-14) Finish and present my `Either` stdlib proposal.
