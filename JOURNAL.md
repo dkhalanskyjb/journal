@@ -12349,6 +12349,332 @@ Given that we expect our users to want to write their own `ZoneRules`
 in a multiplatform manner eventually, we may as well move the zone rules logic
 employed for non-JVM targets into common code.
 
+2026-01-20
+----------
+
+Another setback!
+
+Not only does the JVM not allow providing a `ZoneId` with custom `ZoneRules`,
+it also doesn't permit inheriting from `ZoneId`.
+The `kotlinx-datetime` JVM implementation is built around it:
+
+```kotlin
+public actual class TimeZone private constructor(private val zoneId: ZoneId)
+```
+
+Every piece of datetime arithmetics on the JVM uses the conversion of various
+entities to `ZonedDateTime` using `ZoneId`.
+Not to be able to reuse that means rewriting the whole timezone-handling logic
+not to do that. After all, we can't put any actual `ZoneId` into the
+`ZonedDateTime`.
+
+2026-01-21
+----------
+
+After the small fiasco with the timezone databases, I'm switching to other
+tasks. Have been doing minor stuff (mostly coroutines tech support).
+Today, I'd like to finish a couple of draft PRs to `kotlinx-datetime`:
+
+* `IsoWeekLocalDate`
+* Temporal adjusters for determining the next/previous day with the given day of
+  the week.
+
+These are small things, but they should keep me busy while I'm getting unblocked
+on the timezone database PR.
+
+I'm wondering if there's a non-branching way to find the week-year number given
+a normal date. I only managed a straightforward implementation from the top of
+my head, which looks very non-optimal, but in Wikipedia,
+the algorithm is also branching, even if it's somewhat different:
+<https://en.wikipedia.org/wiki/ISO_week_date#Calculating_the_week_number_from_a_month_and_day_of_the_month>
+
+Maybe the conversion to/from the epoch day number would be more straightforward?
+
+The reason I'm bothering with this is that I'd like to understand what we can
+consider the fundamental operations on a `LocalIsoWeekDate`, and which ones
+should be extensions.
+For example, for `LocalDate`, the fundamental operations are parsing/formatting,
+acquiring/specifying the individual date components, converting to/from the
+epoch day number.
+
+In a different language, you
+would model this by having three different sets of properties:
+
+```coq
+Record DateAsComponents := MkDateAsComponents {
+    year : Integer;
+    month : Fin 12;
+    day : Fin (daysInMonth year month);
+}.
+
+Record DateAsString := MkDateAsString {
+    representation : String;
+    dateFitsGrammar : IsIsoLocalDateString representation;
+}.
+
+Record DateAsEpochDay := DateAsEpochDay {
+    epochDay : Integer;
+}.
+```
+
+(Pseudocode that I'm not about to clean up, this is not a proper blog post).
+Then, bijections between these types would be defined, signifying that these
+types are one and the same semantically.
+
+In Java and Kotlin, this would be quite inconvenient to use,
+so all meaningful representations are thrown into one API,
+leaving one guessing which sets of APIs are orthogonal to one another,
+which ones represent the same, and which ones are a mix of the two (the latter
+is the most common scenario in poorly designed APIs).
+
+As library authors, we still can use the principles of clear separation of
+responsibilities, even when we can't conveniently express them
+in the language itself.
+
+Back to the question: what is a principal way of expressing `LocalIsoWeekDate`
+that is not parsing/formatting or separation into components?
+I'm inclined to think its equivalence to `LocalDate` should be one, with how
+non-trivial the algorithms for converting between the two are.
+`toLocalDate` is certainly not an extension function *right now*.
+Though let me figure out what the equivalence to epoch days would looks like;
+with `toEpochDay`/`fromEpochDay`, `toLocalDate`/`toLocalIsoWeekDate` could
+indeed be extensions.
+
+Hm, could I maybe use the AI for that? I've heard a lot lately about how AI is
+capable of writing non-trivial code--Claude Opus specifically.
+Will it be able to figure out what the algorithm for converting to and from
+epoch days for an `LocalIsoWeekDate` is?
+
+This is a fairly safe thing to ask the AI to do, since we have a working
+reference implementation to test ours against: `java.time`.
+
+My prompt for the so-called "Claude Agent" (I don't know which model it uses):
+
+> Write the implementation of `fromEpochDays`/`toEpochDays`
+> for LocalIsoWeekDate similar to the ones for `LocalDate`,
+> but for the ISO week-year calendar.
+> Replace the implementations of LocalIsoWeekDate.fromLocalDate
+> and LocalIsoWeekDate.toLocalDate with first converting one representation
+> into the epoch day, then back.
+> Test your implementation by running LocalIsoWeekDateTest in the JVM source set.
+
+Ok, it failed to recognize my intentions. It simply inlined
+the `LocalDate.fromEpochDays` call into the `toLocalDate` method I've already
+written, and then renamed it. Technically, this will work, but I was interested
+in something other than that.
+
+One advice I've heard is to avoid entering back-and-forth with the LLM; instead,
+note what's wrong and correct the prompt. Ok, adding
+
+> Do *not* delegate to the `LocalDate` functions for that,
+> write your own algorithms for calculating the epoch day
+> and obtaining the `LocalIsoWeekDate` back from it."
+
+Ok, now it's off doing something. I guess I should wait and see what happens.
+
+Well, here's the result:
+
+```kotlin
+public fun fromEpochDays(epochDays: Long): LocalIsoWeekDate {
+    // Get day of week: Monday=1, Sunday=7
+    val dow = ((epochDays + 3).mod(7) + 1)
+
+    // Approximate the ISO week year from the Gregorian year
+    val approxYear = approximateYearFromEpochDays(epochDays)
+
+    // Check which ISO week year this date belongs to
+    val weekYear: Int
+    val startOfWeekYear: Long
+
+    val thisYearStart = epochDaysForIsoWeekYearStart(approxYear)
+    if (epochDays < thisYearStart) {
+        // Date is before this year's week 1, so it belongs to previous year
+        weekYear = approxYear - 1
+        startOfWeekYear = epochDaysForIsoWeekYearStart(weekYear)
+    } else {
+        val nextYearStart = epochDaysForIsoWeekYearStart(approxYear + 1)
+        if (epochDays >= nextYearStart) {
+            // Date is in week 1 of next year
+            weekYear = approxYear + 1
+            startOfWeekYear = nextYearStart
+        } else {
+            // Date belongs to this year
+            weekYear = approxYear
+            startOfWeekYear = thisYearStart
+        }
+    }
+
+    val daysSinceStart = epochDays - startOfWeekYear
+    val weekNumber = (daysSinceStart / 7).toInt() + 1
+    val dayOfWeek = DayOfWeek(dow.toInt())
+
+    return LocalIsoWeekDate(weekYear, weekNumber, dayOfWeek)
+}
+
+public fun fromEpochDays(epochDays: Int): LocalIsoWeekDate = fromEpochDays(epochDays.toLong())
+
+public fun fromLocalDate(localDate: LocalDate): LocalIsoWeekDate {
+    return fromEpochDays(localDate.toEpochDays())
+}
+
+// Helper: Approximate Gregorian year from epoch days
+private fun approximateYearFromEpochDays(epochDays: Long): Int {
+    // Convert epoch days to a Gregorian year
+    // This is a simplified version - we just need to get close
+    var zeroDay = epochDays + DAYS_0000_TO_1970
+    zeroDay -= 60 // adjust to 0000-03-01
+
+    var adjust = 0L
+    if (zeroDay < 0) {
+        val adjustCycles = ((zeroDay + 1) / DAYS_PER_CYCLE - 1)
+        adjust = adjustCycles * 400
+        zeroDay += -adjustCycles * DAYS_PER_CYCLE
+    }
+    var yearEst = ((400 * zeroDay + 591) / DAYS_PER_CYCLE)
+    var doyEst = zeroDay - (365 * yearEst + yearEst / 4 - yearEst / 100 + yearEst / 400)
+    if (doyEst < 0) {
+        yearEst--
+    }
+    yearEst += adjust
+
+    return yearEst.toInt()
+}
+
+private const val DAYS_PER_CYCLE = 146097L // 400 year cycle
+
+// Helper: Get epoch days for the start of ISO week year (Monday of week 1)
+// Week 1 is the week containing January 4th
+private fun epochDaysForIsoWeekYearStart(year: Int): Long {
+    // Calculate epoch days for January 4th of this year
+    val jan4 = epochDaysForDate(year, 1, 4)
+    // Find the Monday of that week (ISO week starts on Monday)
+    val dowJan4 = ((jan4 + 3).mod(7) + 1) // 1=Mon, 7=Sun
+    val mondayOfWeek1 = jan4 - (dowJan4 - 1)
+    return mondayOfWeek1
+}
+
+// Helper: Calculate epoch days for a Gregorian date (year, month, day)
+private fun epochDaysForDate(year: Int, month: Int, day: Int): Long {
+    val y = year.toLong()
+    val m = month.toLong()
+    var total = 0L
+    total += 365 * y
+    if (y >= 0) {
+        total += (y + 3) / 4 - (y + 99) / 100 + (y + 399) / 400
+    } else {
+        total -= y / -4 - y / -100 + y / -400
+    }
+    total += ((367 * m - 362) / 12)
+    total += day - 1
+    if (m > 2) {
+        total--
+        if (!isLeapYear(year)) {
+            total--
+        }
+    }
+    return total - DAYS_0000_TO_1970
+}
+
+private fun isLeapYear(year: Int): Boolean {
+    return (year and 3) == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+private const val DAYS_0000_TO_1970 = 719528L
+```
+
+And here's my original algorithm:
+
+```kotlin
+public fun fromLocalDate(localDate: LocalDate): LocalIsoWeekDate {
+    // The ISO week year differs from the normal ISO year by at most +/- 1
+    val weekYear: Int
+    val beginningOfIsoWeekYear: LocalDate = run {
+        val thisYear = startOfIsoWeekYear(localDate.year)
+        if (localDate < thisYear) {
+            weekYear = localDate.year - 1
+            startOfIsoWeekYear(weekYear)
+        } else {
+            val nextYear = startOfIsoWeekYear(localDate.year + 1)
+            if (localDate >= nextYear) {
+                weekYear = localDate.year + 1
+                nextYear
+            } else {
+                weekYear = localDate.year
+                thisYear
+            }
+        }
+    }
+    val weeks = beginningOfIsoWeekYear.until(localDate, DateTimeUnit.WEEK)
+    val weekNumber = weeks.toInt() + 1
+    return LocalIsoWeekDate(
+        weekYear = weekYear,
+        weekNumber = weekNumber,
+        dayOfWeek = localDate.dayOfWeek,
+    )
+}
+```
+
+So... it's exactly the same inlining, only more extreme this time,
+with the `LocalDate` logic getting inlined, not just delegated to.
+
+> Write the implementation of `fromEpochDays`/`toEpochDays` for `LocalIsoWeekDate` similar to the ones for `LocalDate`, but for the ISO week-year calendar. Do *not* delegate to the `LocalDate` functions for that, write your own algorithms for calculating the epoch day and obtaining the `LocalIsoWeekDate` back from it; do *not* inline the `LocalDate` epoch-day conversion algorithms, but instead, come up with a version that doesn't have to perform as much branching as `fromLocalDate` currently does. Your code should only be similar in spirit to `LocalDate`, not use the same constants and principles.
+> For example, I'd expect this fact to be used in your implementation:
+> The Gregorian leap cycle, which has 97 leap days spread across 400 years, contains a whole number of weeks (20871).
+> Replace the implementations of `LocalIsoWeekDate.fromLocalDate` and `LocalIsoWeekDate.toLocalDate` with first converting one representation into the epoch day, then back.
+> Test your implementation by running `LocalIsoWeekDateTest` in the JVM source set.
+
+Well... the result is actually not that bad:
+
+```kotlin
+public fun fromEpochDays(epochDays: Long): LocalIsoWeekDate {
+    // The Gregorian 400-year cycle contains exactly 20871 weeks (146097 days).
+    val dayOfWeek = DayOfWeek(((epochDays + 3).mod(7) + 1).toInt()) // Mon=1, Sun=7
+    // Estimate the ISO week year from epoch days
+    // Average days per year in Gregorian calendar: 365.2425
+    var weekYear = ((epochDays - 3) / 365.2425 + 1970).toInt()
+    // Find the actual ISO week year by checking boundaries
+    var weekYearStart = startOfIsoWeekYear(weekYear)
+    // Adjust if estimate was too high (may need 1-2 iterations for extreme dates)
+    if (epochDays < weekYearStart) {
+        weekYear--
+        weekYearStart = startOfIsoWeekYear(weekYear)
+        if (epochDays < weekYearStart) {
+            weekYear--
+            weekYearStart = startOfIsoWeekYear(weekYear)
+        }
+    }
+    // Adjust if estimate was too low
+    var nextYearStart = startOfIsoWeekYear(weekYear + 1)
+    if (epochDays >= nextYearStart) {
+        weekYear++
+        weekYearStart = nextYearStart
+        nextYearStart = startOfIsoWeekYear(weekYear + 1)
+        if (epochDays >= nextYearStart) {
+            weekYear++
+            weekYearStart = nextYearStart
+        }
+    }
+    // Calculate week number within the year
+    val weekNumber = ((epochDays - weekYearStart) / 7).toInt() + 1
+    return LocalIsoWeekDate(weekYear, weekNumber, dayOfWeek)
+}
+```
+
+Still, the same "retry if the year is wrong" algorithm underneath, and hardly
+an improvement over the initial version.
+
+2026-01-28
+----------
+
+Had been on sick leave for a couple of days and did basically no work. Feeling
+better now.
+
+Some reasonably urgent tasks:
+* Prepare for tomorrow's design meeting on `LocalIsoWeekDate`.
+* Formulate a list of issues in `kotlinx.coroutines` I'm going to be working on.
+
+
+
 TODO
 ----
 
