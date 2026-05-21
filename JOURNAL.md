@@ -12678,92 +12678,13 @@ Some reasonably urgent tasks:
 TODO
 ----
 
-* (2026-01-12) Deal with ByteBuddy slowness if we don't adopt the
-  `ServiceLoader`-based solution instead:
-  <https://kotlinlang.slack.com/archives/C1CFAFJSK/p1760983984684049>
-* (2026-01-12) Review <https://github.com/Kotlin/kotlinx.coroutines/pull/4601/>
-* (2026-01-12) Research the Lincheck error:
-```
-Semaphore1LincheckTest (6m):
-
-org.jetbrains.kotlinx.lincheck.LincheckAssertionError: 
-= The execution has hung, see the thread dump =
-Execution scenario (parallel part):
-| release()    | release() | acquire() |
-| tryAcquire() | release() |           |
-
-Thread-0:
-  jdk.internal.misc.Unsafe.park(Native Method)
-  java.util.concurrent.locks.LockSupport.park(LockSupport.java:323)
-  java.lang.Thread.run(Thread.java:829)
-Thread-2:
-  kotlinx.coroutines.sync.SemaphoreAndMutexImpl.acquireSlowPath(Semaphore.kt:399)
-  kotlinx.coroutines.sync.SemaphoreAndMutexImpl.acquire(Semaphore.kt:179)
-  kotlinx.coroutines.lincheck.SemaphoreLincheckTestBase.acquire(SemaphoreLincheckTest.kt:18)
-  java.lang.Thread.run(Thread.java:829)
-Thread-1:
-  java.lang.Thread.yield(Native Method)
-  java.lang.Thread.run(Thread.java:829)
-
-UnlimitedChannelLincheckTest (9m):
-
-org.jetbrains.kotlinx.lincheck.LincheckAssertionError: 
-= The execution has hung, see the thread dump =
-Execution scenario (parallel part):
-| send(5)                   | receive() + cancel | sendViaSelect(5) |
-| sendViaSelect(5) + cancel | receiveViaSelect() |                  |
-
-Thread-1:
-  java.lang.Class.forName0(Native Method)
-  java.lang.Class.forName(Class.java:315)
-  kotlin.SynchronizedLazyImpl.getValue(LazyJVM.kt:86)
-  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
-  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
-  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
-  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
-  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
-  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
-  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
-  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
-  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
-  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
-  org.objectweb.asm.MethodVisitor.visitMethodInsn(MethodVisitor.java:450)
-  org.objectweb.asm.commons.AdviceAdapter.visitMethodInsn(AdviceAdapter.java:456)
-  org.jetbrains.kotlinx.lincheck.CancellabilitySupportMethodTransformer.visitMethodInsn(CancellabilitySupportTransformer.kt:34)
-  org.objectweb.asm.ClassReader.readCode(ClassReader.java:2448)
-  org.objectweb.asm.ClassReader.readMethod(ClassReader.java:1514)
-  org.objectweb.asm.ClassReader.accept(ClassReader.java:744)
-  org.objectweb.asm.ClassReader.accept(ClassReader.java:424)
-  org.jetbrains.kotlinx.lincheck.TransformationClassLoader.instrument(TransformationClassLoader.java:158)
-  org.jetbrains.kotlinx.lincheck.TransformationClassLoader.loadClass(TransformationClassLoader.java:121)
-  java.lang.ClassLoader.defineClass1(Native Method)
-  java.lang.ClassLoader.defineClass(ClassLoader.java:1022)
-  java.lang.ClassLoader.defineClass(ClassLoader.java:883)
-  org.jetbrains.kotlinx.lincheck.TransformationClassLoader.loadClass(TransformationClassLoader.java:122)
-  kotlinx.coroutines.CancellableContinuationKt.getOrCreateCancellableContinuation(CancellableContinuation.kt:467)
-  kotlinx.coroutines.channels.BufferedChannel.receiveOnNoWaiterSuspend(BufferedChannel.kt:3714)
-  kotlinx.coroutines.channels.BufferedChannel.receive$suspendImpl(BufferedChannel.kt:705)
-  kotlinx.coroutines.channels.BufferedChannel.receive(BufferedChannel.kt)
-  kotlinx.coroutines.lincheck.ChannelLincheckTestBase.receive(ChannelsLincheckTest.kt:119)
-  java.lang.Thread.run(Thread.java:829)
-Thread-2:
-  java.lang.Thread.yield(Native Method)
-  java.lang.Thread.run(Thread.java:829)
-Thread-0:
-  java.lang.Thread.yield(Native Method)
-  java.lang.Thread.run(Thread.java:829)
-```
 * (2026-01-12) Update the library authors guide to include
   <https://youtrack.jetbrains.com/issue/KT-83393>
 * (2026-01-13) We received complaints about `debounce` causing liveness issues.
   Investigate. So far, the complaint makes sense: we don't provide a way to say
   "emit anything if at least 100 milliseconds pass without the values stopping,
   we're tired of waiting".
-* (2026-01-14) Add `ExperimentalCoroutinesApi` to `Channel.consumeTo`.
 * (2026-01-14) Finish and present my cleanup scope stdlib proposal.
 * (2026-01-14) Finish and present my `Either` stdlib proposal.
-* (2026-01-14) The management requests an outline for plans for
-  `kotlinx.coroutines`: which issues need a breaking change, which issues
-  I indent to tackle soon.
 * (2026-01-17) Look at <https://dotat.at/@/2026-01-13-http-ratelimit.html>
   for inspirations on rate limiting for `kotlinx.coroutines`.
